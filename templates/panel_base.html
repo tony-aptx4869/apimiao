@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="panel-layout">
+  <aside class="sidebar">
+    <div class="side-brand">
+      <strong>{{ t('panel.title') }}</strong>
+    </div>
+    <nav class="side-nav">
+      <a href="{{ url_for('control.overview') }}" class="{{ 'active' if request.endpoint == 'control.overview' }}">{{ t('panel.overview') }}</a>
+      <a href="{{ url_for('control.logs_page') }}" class="{{ 'active' if request.endpoint == 'control.logs_page' }}">{{ t('panel.logs') }}</a>
+      <a href="{{ url_for('control.api_keys_page') }}" class="{{ 'active' if request.endpoint == 'control.api_keys_page' }}">{{ t('panel.apikeys') }}</a>
+      <a href="{{ url_for('api.api_manager') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('api.') }}">{{ t('panel.apimanager') }}</a>
+      <a href="{{ url_for('control.profile') }}" class="{{ 'active' if request.endpoint == 'control.profile' }}">{{ t('panel.profile') }}</a>
+      {% if session.get('role') == 'ADMIN' %}
+      <a href="{{ url_for('control.users_page') }}" class="{{ 'active' if request.endpoint == 'control.users_page' }}">{{ t('panel.users') }}</a>
+      {% endif %}
+    </nav>
+    <div class="side-foot">
+      <a href="{{ url_for('auth.logout') }}">{{ t('nav.logout') }}</a>
+    </div>
+  </aside>
+  <section class="panel-main">
+    {% block panel %}{% endblock %}
+  </section>
+</div>
+{% endblock %}

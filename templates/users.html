@@ -1,0 +1,61 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.users') }} · APIMiao{% endblock %}
+{% block panel %}
+<div class="page-head"><h1 class="page-title">{{ t('panel.users') }}</h1><button class="btn btn-primary" id="addUserBtn"><i class="bi bi-plus"></i> Add user</button></div>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>ID</th><th>{{ t('login.email') }}</th><th>Role</th><th>2FA</th><th>{{ t('keys.created') }}</th><th style="width:120px"></th></tr></thead>
+    <tbody id="userRows"></tbody>
+  </table>
+</div>
+<div class="modal" id="userModal"><div class="modal-box">
+  <h3 id="userModalTitle">Add user</h3>
+  <div id="userModalBody"></div>
+  <div class="modal-actions"><button class="btn btn-outline" id="userCancel">{{ t('common.cancel') }}</button><button class="btn btn-primary" id="userSave">{{ t('common.save') }}</button></div>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+let users = [];
+async function loadUsers() {
+  const r = await apiGet('/api/users');
+  if (!r.ok) return;
+  users = r.users;
+  document.getElementById('userRows').innerHTML = users.map(u =>
+    '<tr data-id="' + u.id + '"><td><code>' + u.id + '</code></td><td>' + esc(u.email) + '</td><td>' + u.role + '</td>' +
+    '<td>' + (u.totp_enabled ? 'On' : 'Off') + '</td><td class="date-cell" data-utc="' + u.created_at + '"></td>' +
+    '<td><button class="btn btn-xs edit-user">Edit</button> <button class="btn btn-xs btn-danger del-user">Delete</button></td></tr>'
+  ).join('');
+  formatDates();
+  bindUserEvents();
+}
+function openUserModal(u) {
+  document.getElementById('userModalTitle').textContent = u ? 'Edit user' : 'Add user';
+  document.getElementById('userModalBody').innerHTML =
+    '<label>Email<input id="uEmail" type="email" value="' + (u ? esc(u.email) : '') + '"></label>' +
+    '<label>Password' + (u ? ' (leave blank to keep)' : '') + '<input id="uPwd" type="password"></label>' +
+    '<label>Role<select id="uRole"><option value="USER" ' + (u && u.role === 'USER' ? 'selected' : '') + '>USER</option><option value="ADMIN" ' + (u && u.role === 'ADMIN' ? 'selected' : '') + '>ADMIN</option></select></label>';
+  document.getElementById('userModal').dataset.id = u ? u.id : '';
+  document.getElementById('userModal').classList.add('show');
+}
+document.getElementById('addUserBtn').onclick = () => openUserModal(null);
+document.getElementById('userCancel').onclick = () => document.getElementById('userModal').classList.remove('show');
+document.getElementById('userSave').onclick = async () => {
+  const id = document.getElementById('userModal').dataset.id;
+  const payload = {email: document.getElementById('uEmail').value.trim(), role: document.getElementById('uRole').value};
+  if (document.getElementById('uPwd').value) payload.password = document.getElementById('uPwd').value;
+  const r = id ? await apiFetch('/api/users/' + id, 'PUT', payload) : await apiPost('/api/users', payload);
+  if (r.ok) { document.getElementById('userModal').classList.remove('show'); loadUsers(); }
+  else alert(r.error);
+};
+function bindUserEvents() {
+  document.querySelectorAll('.edit-user').forEach(b => b.onclick = () => openUserModal(users.find(u => u.id === b.closest('tr').dataset.id)));
+  document.querySelectorAll('.del-user').forEach(b => b.onclick = async () => {
+    if (!confirm('Delete this user?')) return;
+    const r = await apiDelete('/api/users/' + b.closest('tr').dataset.id);
+    if (r.ok) loadUsers(); else alert(r.error);
+  });
+}
+loadUsers();
+</script>
+{% endblock %}

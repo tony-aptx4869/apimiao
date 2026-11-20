@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+data/apimiao.db
+data/apimiao.db-wal
+data/apimiao.db-shm
+data/initial_password.txt
+config.ini
+.DS_Store

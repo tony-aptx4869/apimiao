@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="hero-inner">
+    <span class="hero-badge">API relay, simplified</span>
+    <h1>{{ t('home.hero.title') }}</h1>
+    <p class="hero-sub">{{ t('home.hero.sub') }}</p>
+    <a class="btn btn-primary btn-lg" href="{{ url_for('auth.login') }}">{{ t('home.hero.login') }}</a>
+  </div>
+</section>
+<section class="features">
+  <div class="feature-card"><h3>{{ t('home.feature1.title') }}</h3><p>{{ t('home.feature1.desc') }}</p></div>
+  <div class="feature-card"><h3>{{ t('home.feature2.title') }}</h3><p>{{ t('home.feature2.desc') }}</p></div>
+  <div class="feature-card"><h3>{{ t('home.feature3.title') }}</h3><p>{{ t('home.feature3.desc') }}</p></div>
+</section>
+{% endblock %}

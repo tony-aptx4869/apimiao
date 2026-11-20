@@ -1,0 +1,84 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.apimanager') }} · APIMiao{% endblock %}
+{% block panel %}
+<div class="page-head">
+  <h1 class="page-title">{{ t('panel.apimanager') }}</h1>
+  <div class="head-actions">
+    <button class="btn btn-danger" id="bulkDeleteBtn" style="display:none">{{ t('common.delete') }}</button>
+    <a class="btn btn-outline" href="{{ url_for('api.api_new', type='PROXY') }}"><i class="bi bi-plus"></i> {{ t('api.create.proxy') }}</a>
+    <a class="btn btn-primary" href="{{ url_for('api.api_new', type='TRANSMISSION') }}"><i class="bi bi-plus"></i> {{ t('api.create.transmission') }}</a>
+  </div>
+</div>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr>
+      <th style="width:36px"><input type="checkbox" id="selectAll"></th>
+      <th>Method</th><th>API Endpoint</th><th>Type</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for a in apis %}
+      <tr data-id="{{ a.id }}">
+        <td><input type="checkbox" class="row-check"></td>
+        <td><span class="method method-{{ a.method }}">{{ a.method }}</span></td>
+        <td class="endpoint-cell">
+          <a href="{{ url_for('api.api_edit', api_id=a.id) }}"><code>{% set pre = endpoint_prefix(a.type) %}{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}</code></a>
+          <button type="button" class="copy-endpoint" title="{{ '复制 Endpoint' if LANG() == 'zh' else 'Copy endpoint' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy"><i class="bi bi-copy"></i></button>
+          <button type="button" class="copy-url" title="{{ '复制完整 API URL' if LANG() == 'zh' else 'Copy full API URL' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy-url"><i class="bi bi-link"></i></button>
+        </td>
+        <td><span class="tag tag-{{ a.type|lower }}">{{ a.type }}</span></td>
+        <td>{{ a.auth }}</td>
+        <td class="date-cell" data-utc="{{ a.created_at }}"></td>
+        <td class="note-cell">{{ a.note }}</td>
+        <td class="row-actions">
+          <a class="btn btn-xs btn-outline copy-api" href="{{ url_for('api.api_new', copy_from=a.id) }}" title="{{ t('common.copy') }}"><i class="bi bi-plus-square"></i> {{ t('common.copy') }}</a>
+          <button class="btn btn-xs btn-danger del-api">{{ t('common.delete') }}</button>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="empty">No APIs yet. Create one above.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('selectAll').onchange = e => {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = e.target.checked);
+  toggleBulk();
+};
+function toggleBulk() {
+  document.getElementById('bulkDeleteBtn').style.display = document.querySelector('.row-check:checked') ? '' : 'none';
+}
+document.querySelectorAll('.row-check').forEach(c => c.onchange = toggleBulk);
+document.getElementById('bulkDeleteBtn').onclick = async () => {
+  if (!confirm('Delete selected APIs?')) return;
+  const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr').dataset.id);
+  const r = await apiPost('/api/apis/bulk-delete', {ids});
+  if (r.ok) location.reload();
+};
+document.querySelectorAll('.del-api').forEach(b => b.onclick = async () => {
+  if (!confirm('Delete this API?')) return;
+  const r = await apiDelete('/api/apis/' + b.closest('tr').dataset.id);
+  if (r.ok) location.reload();
+});
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  const old = btn.innerHTML;
+  btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+  setTimeout(() => { btn.innerHTML = old; }, 1200);
+}
+// 复制 Endpoint 路径，如 p/h
+document.querySelectorAll('.copy-endpoint').forEach(b => b.onclick = () => copyText(b.dataset.path, b));
+// 复制完整 API URL，如 https://api.aptx4869.vip/p/h（域名取当前站点，自动适配）
+document.querySelectorAll('.copy-url').forEach(b => b.onclick = () => {
+  copyText(location.origin + '/' + b.dataset.path, b);
+});
+</script>
+{% endblock %}

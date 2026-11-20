@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <h1>{{ t('login.2fa') }}</h1>
+    {% if login_error %}<div class="alert alert-error">{{ login_error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('auth.login_2fa') }}" class="form-stack">
+      <label>{{ '动态验证码 或 恢复码' if LANG() == 'zh' else 'Authenticator code or recovery code' }}
+        <input type="text" name="code" inputmode="text" autocomplete="one-time-code" placeholder="000000 or XXXX-XXXX-XXXX" required>
+      </label>
+      <button class="btn btn-primary btn-block" type="submit">{{ t('login.2fa.submit') }}</button>
+    </form>
+    <p class="hint" style="margin-top:14px">{{ '无法使用验证器？输入启用 2FA 时保存的一次性恢复码登录。每个恢复码仅可用一次。' if LANG() == 'zh' else 'Lost your authenticator? Use a one-time recovery code saved when you enabled 2FA. Each code works once.' }}</p>
+  </div>
+</div>
+{% endblock %}

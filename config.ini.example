@@ -1,0 +1,61 @@
+# ============================================================
+# APIMiao 配置文件模板
+# 使用方法：复制本文件为 config.ini 后按需修改
+#   cp config.ini.example config.ini
+# 程序首次启动若发现没有 config.ini，会自动从本模板复制一份。
+# config.ini 含密钥等敏感信息，已加入 .gitignore，请勿提交。
+# ============================================================
+
+[server]
+# 开发模式（python3 main.py）监听地址与端口
+host = 0.0.0.0
+port = 5099
+# 是否开启 Flask 调试模式：0=关闭，1=开启
+debug = 0
+# 服务器公网出口 IP（源 API 实际看到的来源 IP）。留空则自动探测。
+# 用于 UPSTREAM_* 日志：这类日志的 Client IP 显示服务器出口 IP，
+# 而 GATEWAY 日志仍显示调用方 IP。若自动探测不准，可在此显式填写。
+egress_ip =
+
+[gunicorn]
+# 生产模式（gunicorn）监听地址与端口，由 Caddy 反代到此地址
+bind = 127.0.0.1:8080
+# worker / 线程数。定时任务已独立成进程，可安全开多 worker
+workers = 2
+threads = 4
+# 日志输出，- 表示标准输出
+accesslog = -
+errorlog = -
+loglevel = info
+# gunicorn 25.1+ 运行时控制套接字（供 gunicornc 用）。默认禁用即可：
+# 它默认写到 $HOME/.gunicorn/，服务用户（如 www-data，home=/var/www）常无写权限而报 Permission denied。
+# 一般保持 true；若要用 gunicornc，改为 false 并设置一个服务用户可写的 control_socket 路径。
+control_socket_disable = true
+control_socket =
+
+[gateway]
+# API Endpoint 的 URL 路径模式：
+#   split（默认）—— Proxy API 挂 /p/<Endpoint>，Transmission API 挂 /t/<Endpoint>，两类隔离
+#   gate（旧）   —— 全部挂 /gate/<Endpoint>，不区分类型
+#   none（旧）   —— 全部挂 /<Endpoint>，不区分类型
+# 注意：none 模式下 Endpoint 名不要与系统保留路径（login/logout/panel/api/lang）冲突。
+prefix = split
+
+[webauthn]
+# 通行密钥 relying party 配置。
+# 本地开发：rp_id=localhost，origin=http://localhost:5099
+# 生产部署：rp_id=你的域名，origin=https://你的域名
+rp_id = localhost
+rp_name = APIMiao
+origin = http://localhost:5099
+
+[security]
+# 会话签名密钥。留空则每次启动随机生成（重启后所有登录失效）。
+# 生产环境务必填一个长随机字符串，例如：openssl rand -hex 32
+secret_key =
+# 生产走 HTTPS 时设为 true，本地开发保持 false
+cookie_secure = false
+
+[admin]
+# 默认 ADMIN 邮箱（ID 固定为 0000005f，初始密码首次启动时生成）
+email = miao@apimiao.local

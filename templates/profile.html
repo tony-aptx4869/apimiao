@@ -1,0 +1,179 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.profile') }} · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('panel.profile') }}</h1>
+{% if force %}<div class="alert alert-warning">首次登录请先修改密码，之后才能使用其他功能。</div>{% endif %}
+<div class="form-section">
+  <h2>Account</h2>
+  <div class="form-grid">
+    <label>ID<input value="{{ user.id }}" disabled></label>
+    <label>{{ t('login.email') }}<input id="profileEmail" value="{{ user.email }}"></label>
+    <label>New password (leave blank to keep)<input id="profilePwd" type="password"></label>
+  </div>
+  <button class="btn btn-primary" id="saveProfile">{{ t('common.save') }}</button>
+</div>
+<div class="form-section">
+  <h2>Two-factor authentication (2FA)</h2>
+  <p>Status: <b id="twofaStatus">{{ 'Enabled' if user.totp_enabled else 'Disabled' }}</b></p>
+  {% if not user.totp_enabled %}
+  <button class="btn btn-outline" id="setup2fa">Set up 2FA</button>
+  <div id="twofaSetup" style="display:none">
+    <img id="twofaQr" alt="QR code"><p>Secret: <code id="twofaSecret"></code></p>
+    <label>Code<input id="twofaCode" inputmode="numeric"></label>
+    <button class="btn btn-primary" id="enable2fa">Enable</button>
+  </div>
+  {% else %}
+  <div class="form-grid" id="disable2faBox">
+    <label>Current 2FA code<input id="disable2faCode" inputmode="numeric"></label>
+    <label>Current password<input id="disable2faPwd" type="password"></label>
+  </div>
+  <button class="btn btn-danger" id="disable2fa">Disable 2FA</button>
+  {% endif %}
+  {% if user.totp_enabled %}
+  <div class="recovery-box">
+    <h3>{{ '恢复码' if LANG() == 'zh' else 'Recovery codes' }}</h3>
+    <p class="hint" id="recoveryStatus">{{ '加载中…' if LANG() == 'zh' else 'Loading…' }}</p>
+    <button class="btn btn-outline btn-sm" id="regenRecoveryBtn">{{ '重新生成恢复码' if LANG() == 'zh' else 'Regenerate recovery codes' }}</button>
+  </div>
+  {% endif %}
+</div>
+
+<div class="modal" id="recoveryModal">
+  <div class="modal-box modal-wide">
+    <button class="reveal-close" id="recoveryClose" type="button" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+    <h3>{{ '保存你的恢复码' if LANG() == 'zh' else 'Save your recovery codes' }}</h3>
+    <p class="hint">{{ '每个恢复码只能使用一次，请妥善保存。关闭后不再显示。' if LANG() == 'zh' else 'Each code works once. Save them now — they will not be shown again.' }}</p>
+    <div id="recoveryList" class="recovery-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="recoveryCopyAll">{{ '全部复制' if LANG() == 'zh' else 'Copy all' }}</button>
+      <button class="btn btn-primary" id="recoveryDone">{{ t('common.close') }}</button>
+    </div>
+  </div>
+</div>
+<div class="form-section">
+  <h2>Passkeys <span class="hint">{{ passkeys|length }} / 9</span></h2>
+  <button class="btn btn-outline" id="addPasskey"><i class="bi bi-plus"></i> Add passkey</button>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Name</th><th>Platform</th><th>{{ t('keys.created') }}</th><th></th></tr></thead>
+      <tbody id="passkeyRows"></tbody>
+    </table>
+  </div>
+  <div class="modal" id="passkeyModal"><div class="modal-box">
+    <h3>Register passkey</h3>
+    <div class="form-grid"><label>Name<input id="pkName" placeholder="e.g. YubiKey 5"></label><label>Platform<select id="pkPlatform"><option>Apple</option><option>Microsoft</option><option>Google</option><option>YubiKey</option><option>Other</option></select></label></div>
+    <div class="modal-actions"><button class="btn btn-outline" id="pkCancel">{{ t('common.cancel') }}</button><button class="btn btn-primary" id="pkSave">Register</button></div>
+  </div></div>
+  <div class="modal" id="verifyModal"><div class="modal-box">
+    <h3>Verify to delete</h3>
+    <div id="verifyBody"></div>
+    <div class="modal-actions"><button class="btn btn-outline" id="verifyCancel">{{ t('common.cancel') }}</button><button class="btn btn-primary" id="verifyConfirm">Delete</button></div>
+  </div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/passkey.js') }}"></script>
+<script>
+const HAS_2FA = {{ 'true' if user.totp_enabled else 'false' }};
+const LANG_ZH = {{ 'true' if LANG() == 'zh' else 'false' }};
+document.getElementById('saveProfile').onclick = async () => {
+  const payload = {email: document.getElementById('profileEmail').value.trim()};
+  if (document.getElementById('profilePwd').value) payload.password = document.getElementById('profilePwd').value;
+  const r = await apiPost('/api/profile', payload);
+  if (r.ok) location.reload(); else alert(r.error);
+};
+if (document.getElementById('setup2fa')) document.getElementById('setup2fa').onclick = async () => {
+  const r = await apiPost('/api/2fa/setup', {});
+  if (!r.ok) return alert(r.error);
+  document.getElementById('twofaQr').src = r.qr;
+  document.getElementById('twofaSecret').textContent = r.secret;
+  document.getElementById('twofaSetup').style.display = 'block';
+};
+if (document.getElementById('enable2fa')) document.getElementById('enable2fa').onclick = async () => {
+  const r = await apiPost('/api/2fa/enable', {code: document.getElementById('twofaCode').value.trim()});
+  if (r.ok) {
+    showRecoveryCodes(r.recovery_codes || []);
+  } else alert(r.error);
+};
+if (document.getElementById('disable2fa')) document.getElementById('disable2fa').onclick = async () => {
+  const r = await apiPost('/api/2fa/disable', {
+    code: document.getElementById('disable2faCode').value.trim(),
+    password: document.getElementById('disable2faPwd').value
+  });
+  if (r.ok) location.reload(); else alert(r.error);
+};
+let passkeys = [];
+async function loadPasskeys() {
+  const r = await apiGet('/api/passkeys');
+  if (!r.ok) return;
+  passkeys = r.passkeys;
+  document.getElementById('passkeyRows').innerHTML = passkeys.map(p =>
+    '<tr data-id="' + p.id + '"><td>' + esc(p.name) + '</td><td>' + esc(p.platform) + '</td>' +
+    '<td class="date-cell" data-utc="' + p.created_at + '"></td><td><button class="btn btn-xs btn-danger del-pk">Delete</button></td></tr>'
+  ).join('') || '<tr><td colspan="4" class="empty">No passkeys</td></tr>';
+  formatDates();
+  document.querySelectorAll('.del-pk').forEach(b => b.onclick = () => openVerify(b.closest('tr').dataset.id));
+}
+const pkModal = document.getElementById('passkeyModal');
+document.getElementById('addPasskey').onclick = () => pkModal.classList.add('show');
+document.getElementById('pkCancel').onclick = () => pkModal.classList.remove('show');
+document.getElementById('pkSave').onclick = () => registerPasskey(document.getElementById('pkName').value.trim(), document.getElementById('pkPlatform').value, pkModal);
+let pendingDeleteId = null;
+function openVerify(id) {
+  pendingDeleteId = id;
+  const body = document.getElementById('verifyBody');
+  if (HAS_2FA) body.innerHTML = '<label>2FA code<input id="verifyCode" inputmode="numeric"></label>';
+  else body.innerHTML = '<p>Verify with any passkey.</p>';
+  document.getElementById('verifyModal').classList.add('show');
+}
+document.getElementById('verifyCancel').onclick = () => document.getElementById('verifyModal').classList.remove('show');
+document.getElementById('verifyConfirm').onclick = async () => {
+  let data = {method: 'totp', code: document.getElementById('verifyCode')?.value || ''};
+  if (!HAS_2FA) {
+    const cred = await authenticatePasskey();
+    if (!cred) return;
+    data = cred; data.method = 'passkey';
+  }
+  const r = await apiFetch('/api/passkey/' + pendingDeleteId, 'DELETE', data);
+  if (r.ok) { document.getElementById('verifyModal').classList.remove('show'); loadPasskeys(); }
+  else alert(r.error);
+};
+loadPasskeys();
+
+// ---------- 恢复码 ----------
+let recoveryCodes = [];
+function showRecoveryCodes(codes) {
+  recoveryCodes = codes;
+  document.getElementById('recoveryList').innerHTML = codes.map(c => '<code>' + esc(c) + '</code>').join('');
+  document.getElementById('recoveryModal').classList.add('show');
+}
+async function loadRecoveryStatus() {
+  const el = document.getElementById('recoveryStatus');
+  if (!el) return;
+  const r = await apiGet('/api/2fa/recovery');
+  if (r.ok) {
+    el.textContent = (LANG_ZH ? '剩余 ' : '') + r.remaining + ' / ' + r.total + (LANG_ZH ? ' 个恢复码可用' : ' recovery codes remaining');
+  }
+}
+document.getElementById('recoveryClose')?.addEventListener('click', () => {
+  document.getElementById('recoveryModal').classList.remove('show');
+  if (HAS_2FA) location.reload();
+});
+document.getElementById('recoveryDone')?.addEventListener('click', () => {
+  document.getElementById('recoveryModal').classList.remove('show');
+  if (HAS_2FA) location.reload();
+});
+document.getElementById('recoveryCopyAll')?.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(recoveryCodes.join('\n')); }
+  catch (e) { alert('Copy failed'); }
+});
+document.getElementById('regenRecoveryBtn')?.addEventListener('click', async () => {
+  const code = prompt(LANG_ZH ? '请输入当前 2FA 动态验证码以重新生成：' : 'Enter your current 2FA code to regenerate:');
+  if (!code) return;
+  const r = await apiPost('/api/2fa/recovery/regenerate', {code: code.trim()});
+  if (r.ok) showRecoveryCodes(r.recovery_codes || []);
+  else alert(r.error);
+});
+loadRecoveryStatus();
+</script>
+{% endblock %}

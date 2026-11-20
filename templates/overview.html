@@ -1,0 +1,41 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.overview') }} · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('panel.overview') }}</h1>
+<!-- 第一行：用户 API 调用 + API Keys -->
+<div class="stat-grid stat-grid-5">
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last1h') }}</div><div class="stat-value">{{ counts.h1 }}</div><div class="stat-sub">{{ t('overview.user_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last24h') }}</div><div class="stat-value">{{ counts.h24 }}</div><div class="stat-sub">{{ t('overview.user_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last7d') }}</div><div class="stat-value">{{ counts.d7 }}</div><div class="stat-sub">{{ t('overview.user_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last30d') }}</div><div class="stat-value">{{ counts.d30 }}</div><div class="stat-sub">{{ t('overview.user_calls') }}</div></div>
+  <div class="stat-card stat-accent"><div class="stat-label">API Keys</div><div class="stat-value">{{ key_count }}</div><div class="stat-sub">{{ t('overview.keys') }}</div></div>
+</div>
+<!-- 第二行：源 API 调用（4 个方块，宽度与第一行一致，末列留空） -->
+<div class="stat-grid stat-grid-5">
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last1h') }}</div><div class="stat-value">{{ original_counts.h1 }}</div><div class="stat-sub">{{ t('overview.original_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last24h') }}</div><div class="stat-value">{{ original_counts.h24 }}</div><div class="stat-sub">{{ t('overview.original_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last7d') }}</div><div class="stat-value">{{ original_counts.d7 }}</div><div class="stat-sub">{{ t('overview.original_calls') }}</div></div>
+  <div class="stat-card"><div class="stat-label">{{ t('overview.last30d') }}</div><div class="stat-value">{{ original_counts.d30 }}</div><div class="stat-sub">{{ t('overview.original_calls') }}</div></div>
+  <div></div>
+</div>
+<div class="panel-card">
+  <div class="chart-head">
+    <h2>{{ t('logs.daily') }}</h2>
+    <div id="chartToggle"></div>
+  </div>
+  <svg id="dailyChart" viewBox="0 0 800 200" class="chart"></svg>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+<script>
+const DAILY_DAYS = {{ daily_days|tojson }};
+const DAILY_VALUES = {{ daily_values|tojson }};
+initChartToggle(
+  document.getElementById('chartToggle'),
+  document.getElementById('dailyChart'),
+  DAILY_DAYS, DAILY_VALUES,
+  { bar: '{{ t('chart.bar') }}', line: '{{ t('chart.line') }}' }
+);
+</script>
+{% endblock %}

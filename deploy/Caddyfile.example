@@ -1,0 +1,23 @@
+# APIMiao 的 Caddy 反向代理配置（由 deploy/caddy-setup.sh 自动生成并替换占位符）。
+# 手动部署时：把下面的域名和 email 占位符改成实际值，放到 /etc/caddy/Caddyfile，然后：
+#   sudo systemctl reload caddy
+#
+# Caddy 会自动完成：HTTP -> HTTPS 跳转、Let's Encrypt 证书申请与续期、TLS 配置。
+# 前提：域名已解析到本机，且 80/443 端口可从公网访问（证书申请需要）。
+
+{
+    # Let's Encrypt 账户邮箱：用于证书到期提醒与账户通知（不参与 TLS 握手）。
+    # 部署脚本会用 EMAIL 环境变量替换下面的占位符。
+    email your-email@example.com
+}
+
+your-domain.com {
+    # 反代到本机 gunicorn（gunicorn.conf.py 默认 127.0.0.1:8080）
+    # Caddy 默认会透传 Host / X-Forwarded-For / X-Forwarded-Proto 等头
+    reverse_proxy 127.0.0.1:8080
+
+    # 访问日志（可选）
+    log {
+        output file /var/log/caddy/apimiao.log
+    }
+}

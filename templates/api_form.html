@@ -1,0 +1,138 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('common.edit') if api and api.id else t('common.create') }} API · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('common.edit') if api and api.id else t('common.create') }} {{ api_type }} API</h1>
+{% if is_copy %}<div class="alert alert-info">{{ t('api.copy_hint') }}</div>{% endif %}
+<div id="formError" class="alert alert-error" style="display:none"></div>
+<div class="form-section">
+  <h2>{{ t('api.section.general') }}</h2>
+  <div class="form-grid">
+    <label>{{ t('api.endpoint') }}<input id="endpoint" value="{{ api.endpoint if api else '' }}" placeholder="weather/{{ ph }}city{{ phend }}"></label>
+    <label>{{ t('api.method') }}<select id="method">{% for m in ['GET','POST','PUT','PATCH','DELETE'] %}<option {{ 'selected' if api and api.method == m }}>{{ m }}</option>{% endfor %}</select></label>
+    <label>{{ t('api.type') }}<input value="{{ api_type }}" disabled><small class="hint">{{ t('api.type_hint_proxy') if api_type == 'PROXY' else t('api.type_hint_trans') }}</small></label>
+    <label>{{ t('api.auth') }}<select id="auth">
+      <option value="x-api-key,bearer" {{ 'selected' if not api or api.auth == 'x-api-key,bearer' }}>{{ t('api.auth.both') }}</option>
+      <option value="x-api-key" {{ 'selected' if api and api.auth == 'x-api-key' }}>{{ t('api.auth.xonly') }}</option>
+      <option value="bearer" {{ 'selected' if api and api.auth == 'bearer' }}>{{ t('api.auth.beareronly') }}</option>
+    </select></label>
+    <label>{{ t('api.encoding') }}<select id="encoding"><option {{ 'selected' if not api or api.encoding == 'UTF-8' }}>UTF-8</option></select></label>
+    <label>{{ t('api.note') }}<input id="note" value="{{ api.note if api else '' }}"></label>
+  </div>
+  <details class="auth-help"><summary>{{ t('api.auth_help_title') }}</summary>
+    <ul>
+      <li><b>X-API-Key</b> — {{ t('api.auth_help_prefix') }} <code>X-API-Key: &lt;key&gt;</code>。{{ t('api.auth_help_x') }}</li>
+      <li><b>Bearer</b> — {{ t('api.auth_help_prefix') }} <code>Authorization: Bearer &lt;key&gt;</code>。{{ t('api.auth_help_bearer') }}</li>
+    </ul>
+  </details>
+</div>
+
+<div class="form-section">
+  <h2>{{ t('api.section.original') }}</h2>
+  <div class="form-grid">
+    <label class="span2">{{ t('api.original.url') }}<input id="original_url" value="{{ cfg.get('original_url','') }}" placeholder="https://api.example.com/data/{{ ph }}uid{{ phend }}"></label>
+    <label>{{ t('api.original.method') }}<select id="original_method">{% for m in ['GET','POST','PUT','PATCH','DELETE'] %}<option {{ 'selected' if cfg.get('original_method','GET') == m }}>{{ m }}</option>{% endfor %}</select></label>
+    <label>
+      <span class="label-row">{{ t('api.original.key') }}
+        <span class="hint">{{ '用' if LANG() == 'zh' else 'Use' }} <code>{{ ph }}o-api-key{{ phend }}</code> {{ t('api.ref_short') }}</span>
+        <button type="button" class="mini-copy" id="copyOApiKey" title="{{ '复制引用' if LANG() == 'zh' else 'Copy reference' }}"><i class="bi bi-copy"></i></button>
+      </span>
+      <input id="original_key" value="{{ cfg.get('original_key','') }}" placeholder="Original API Key">
+    </label>
+  </div>
+  {% for field, label in [('params', t('api.original.params')), ('headers', t('api.original.header')), ('cookies', t('api.original.cookie'))] %}
+  <div class="kv-section">
+    <h3>{{ label }} <button class="btn btn-xs" type="button" data-add="{{ field }}"><i class="bi bi-plus"></i> {{ t('common.add') }}</button></h3>
+    <div id="kv-{{ field }}" class="kv-list"></div>
+  </div>
+  {% endfor %}
+
+  <div class="kv-section">
+    <h3>{{ t('api.original.body') }}</h3>
+    <div class="body-controls">
+      <select id="body_mode">
+        {% for opt in ['none','json','text','binary'] %}<option value="{{ opt }}" {{ 'selected' if cfg.get('body_mode','none') == opt }}>{{ opt }}</option>{% endfor %}
+      </select>
+      {% if api_type == 'PROXY' %}
+      <label class="inline"><input type="checkbox" id="body_enabled" {{ 'checked' if cfg.get('body_enabled', True) }}> {{ t('api.body_forward') }}</label>
+      {% endif %}
+      <button class="btn btn-xs" id="formatJsonBtn" type="button">{{ t('api.format') }}</button>
+    </div>
+    <div id="bodyArea">
+      <textarea id="body" rows="8" spellcheck="false">{{ cfg.get('body','') }}</textarea>
+      <p class="hint" id="bodyHint"></p>
+    </div>
+  </div>
+  <label>{{ t('api.original.encoding') }}<select id="original_encoding"><option>UTF-8</option></select></label>
+</div>
+
+{% if api_type == 'PROXY' %}
+<div class="form-section">
+  <h2>{{ t('api.section.advanced') }}</h2>
+  <div class="form-grid">
+    <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.get('timeout',10) }}"></label>
+    <label>{{ t('api.retry') }}<input id="retry" type="number" value="{{ cfg.get('retry',0) }}"></label>
+    <label>{{ t('api.ratelimit') }}<input id="rate_limit" type="number" value="{{ cfg.get('rate_limit',0) }}"></label>
+    <label>{{ t('api.param_conflict') }}<select id="param_conflict">
+      <option value="user" {{ 'selected' if cfg.get('param_conflict') == 'user' }}>{{ t('api.conflict.user') }}</option>
+      <option value="preset" {{ 'selected' if cfg.get('param_conflict') == 'preset' }}>{{ t('api.conflict.preset') }}</option>
+      <option value="reject" {{ 'selected' if cfg.get('param_conflict') == 'reject' }}>{{ t('api.conflict.reject') }}</option>
+    </select></label>
+    <label class="inline"><input type="checkbox" id="passthrough" {{ 'checked' if cfg.get('passthrough', True) }}> {{ t('api.passthrough') }}</label>
+  </div>
+</div>
+{% else %}
+<div class="form-section">
+  <h2>{{ t('api.section.frequency') }}</h2>
+  <div class="form-grid">
+    <label>{{ t('api.frequency') }}<select id="frequency"><option value="DAY" {{ 'selected' if cfg.get('frequency') == 'DAY' }}>{{ t('api.every_day') }}</option><option value="WEEK" {{ 'selected' if cfg.get('frequency') == 'WEEK' }}>{{ t('api.every_week') }}</option></select></label>
+    <div id="dayBox"><label>{{ t('api.day') }}</label><div class="day-checks">{% for d, n in [(0,'mon'),(1,'tue'),(2,'wed'),(3,'thu'),(4,'fri'),(5,'sat'),(6,'sun')] %}<label class="inline"><input type="checkbox" class="day-check" value="{{ d }}" {{ 'checked' if d in cfg.get('days',[]) }}> {{ t('api.day.' ~ n) }}</label>{% endfor %}</div></div>
+    <div class="span2"><label>{{ t('api.time') }} <button class="btn btn-xs" id="addTime" type="button"><i class="bi bi-plus"></i></button></label><div id="timeList" class="time-list"></div></div>
+  </div>
+</div>
+
+<div class="form-section">
+  <h2>{{ t('api.mapping') }}</h2>
+  <button class="btn btn-outline" id="apiTestBtn" type="button">{{ t('api.test') }}</button>
+  <div class="mapping-grid">
+    <div class="mapping-col">
+      <h3>{{ t('api.source_data') }} <span class="hint">{{ t('api.from_test') }}</span></h3>
+      <div class="tabs" id="srcTabs"><button class="tab active" data-tab="body">{{ t('api.tab.body') }}</button><button class="tab" data-tab="header">{{ t('api.tab.cookie') }}</button><button class="tab" data-tab="cookie">{{ t('api.tab.header') }}</button></div>
+      <div id="srcFields" class="field-list"></div>
+      <div class="history-box"><h4>{{ t('api.history') }}</h4><div id="transHistory"></div></div>
+    </div>
+    <div class="mapping-col">
+      <h3>{{ t('api.your_response') }} <span class="hint">{{ t('api.drag_hint') }}</span></h3>
+      <div id="targetFields" class="field-list dropzone"></div>
+      <button class="btn btn-xs" id="addTarget" type="button"><i class="bi bi-plus"></i> {{ t('api.add_field') }}</button>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="form-actions">
+  <button class="btn btn-primary" id="saveApiBtn">{{ t('common.save') }}</button>
+  <a class="btn btn-outline" href="{{ url_for('api.api_manager') }}">{{ t('common.cancel') }}</a>
+</div>
+
+<div class="modal" id="testModal">
+  <div class="modal-box modal-wide">
+    <h3>{{ t('api.test_modal_title') }}</h3>
+    <div class="kv-section"><h3>{{ t('api.placeholder_kv') }} <button class="btn btn-xs" id="addTestParam" type="button"><i class="bi bi-plus"></i></button></h3><div id="testParams" class="kv-list"></div></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="testCancel">{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" id="testRequest">{{ t('api.request') }}</button>
+    </div>
+    <pre id="testResult" class="result-pre" style="display:none"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const API_ID = "{{ api.id if api else '' }}";
+const API_TYPE = "{{ api_type }}";
+const LANG = "{{ LANG() }}";
+const INITIAL = {{ cfg|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/api_form.js') }}"></script>
+{% endblock %}

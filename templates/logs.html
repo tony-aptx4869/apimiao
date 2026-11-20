@@ -1,0 +1,125 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.logs') }} · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('panel.logs') }}</h1>
+<div class="stat-grid stat-grid-3">
+  <div class="stat-card"><div class="stat-label">30d {{ t('logs.total') }}</div><div class="stat-value" id="statTotal">0</div></div>
+  <div class="stat-card"><div class="stat-label">30d {{ t('logs.success') }}</div><div class="stat-value success" id="statSuccess">0</div></div>
+  <div class="stat-card"><div class="stat-label">30d {{ t('logs.failed') }}</div><div class="stat-value danger" id="statFailed">0</div></div>
+</div>
+<div class="panel-card">
+  <div class="chart-head">
+    <h2>{{ t('logs.daily') }}</h2>
+    <div id="chartToggle"></div>
+  </div>
+  <svg id="dailyChart" viewBox="0 0 800 200" class="chart"></svg>
+</div>
+<div class="panel-card">
+  <h2>{{ t('logs.top') }}</h2>
+  <ol id="topList" class="top-list"></ol>
+</div>
+<div class="panel-card">
+  <h2>{{ t('logs.filters') }}</h2>
+  <div class="filters">
+    <input type="text" id="filterSearch" placeholder="Search endpoint...">
+    <select id="filterMethod"><option value="ALL">METHOD: {{ t('common.all') }}</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+    <select id="filterStatus"><option value="ALL">STATUS: {{ t('common.all') }}</option><option value="SUCCESS">SUCCESS</option><option value="FAILED">FAILED</option><option value="200">200</option><option value="404">404</option><option value="429">429</option><option value="500">500</option></select>
+    <button class="btn btn-primary" id="applyFilter">{{ t('logs.apply') }}</button>
+    <button class="btn btn-outline" id="clearFilter">{{ t('logs.clear') }}</button>
+  </div>
+  <h2>{{ t('logs.history') }}</h2>
+  <p class="hint">{{ 'GATEWAY 为用户调用本平台（来源 IP = 调用方）；UPSTREAM 为本平台请求源 API（来源 IP = 服务器出口 IP，即源 API 实际看到的 IP）。' if LANG() == 'zh' else 'GATEWAY = caller requests this platform (source IP = caller); UPSTREAM = this platform requests the source API (source IP = server egress IP, what the source API actually sees).' }}</p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>EVENT</th><th>Method</th><th>Endpoint / 源 API</th><th title="{{ 'GATEWAY=调用方IP；UPSTREAM=服务器出口IP(源API所见)' if LANG() == 'zh' else 'GATEWAY=caller IP; UPSTREAM=server egress IP (what source API sees)' }}">{{ t('logs.source_ip') }}</th><th>Status</th><th>{{ t('logs.datetime') }}</th></tr></thead>
+      <tbody id="historyBody"></tbody>
+    </table>
+  </div>
+</div>
+<div class="panel-card">
+  <h2>{{ '源 API 请求日志 (Proxy / Transmission)' if LANG() == 'zh' else 'Upstream API Requests (Proxy / Transmission)' }}</h2>
+  <p class="hint">{{ '记录本平台服务端向源 API 发起的请求。此处的来源是服务器出口 IP（即源 API 实际看到的 IP），不是调用方 IP。' if LANG() == 'zh' else 'Requests this platform made to upstream APIs. The source shown is the server egress IP (what the source API actually sees), not the caller IP.' }}</p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>EVENT</th><th>Method</th><th>源 API</th><th>Status</th><th>{{ t('logs.datetime') }}</th></tr></thead>
+      <tbody id="upstreamBody"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/chart.js') }}"></script>
+<script>
+let cached = null;
+let chartMode = 'line';
+const EVENT_LABEL = {
+  GATEWAY: '{{ '用户调用' if LANG() == 'zh' else 'Gateway' }}',
+  UPSTREAM_PROXY: '{{ '代理源API' if LANG() == 'zh' else 'Proxy→Upstream' }}',
+  UPSTREAM_TRANSMISSION: '{{ '中转拉取' if LANG() == 'zh' else 'Trans→Upstream' }}'
+};
+function eventBadge(e) {
+  const label = EVENT_LABEL[e] || e;
+  return '<span class="event-badge event-' + e.toLowerCase() + '">' + esc(label) + '</span>';
+}
+async function loadLogs(method, status) {
+  const r = await apiGet('/api/logs/query?method=' + encodeURIComponent(method || 'ALL') + '&status=' + encodeURIComponent(status || 'ALL'));
+  if (!r.ok) return;
+  cached = r;
+  document.getElementById('statTotal').textContent = r.total;
+  document.getElementById('statSuccess').textContent = r.success;
+  document.getElementById('statFailed').textContent = r.failed;
+  window.drawChart(document.getElementById('dailyChart'), r.days, r.daily, chartMode);
+  const top = document.getElementById('topList');
+  top.innerHTML = r.top.map(x => '<li><span>' + esc(x.endpoint) + '</span><b>' + x.count + '</b></li>').join('') || '<li class="empty">No data</li>';
+  renderHistory(r.history);
+  renderUpstream(r.upstream || []);
+}
+function renderHistory(rows) {
+  const term = (document.getElementById('filterSearch').value || '').toLowerCase();
+  const filtered = rows.filter(r => !term || r.endpoint.toLowerCase().includes(term));
+  document.getElementById('historyBody').innerHTML = filtered.map(r =>
+    '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
+    '<td><code>' + esc(r.endpoint) + '</code></td><td>' + esc(r.client_ip) + '</td>' +
+    '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
+    '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>'
+  ).join('') || '<tr><td colspan="6" class="empty">No records</td></tr>';
+  formatDates();
+}
+function renderUpstream(rows) {
+  document.getElementById('upstreamBody').innerHTML = rows.map(r =>
+    '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
+    '<td><code>' + esc(r.endpoint) + '</code></td>' +
+    '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
+    '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>'
+  ).join('') || '<tr><td colspan="5" class="empty">No upstream requests</td></tr>';
+  formatDates();
+}
+// 图表类型切换按钮（柱状/折线）；切换后沿用 cached 数据重绘
+(function () {
+  const mount = document.getElementById('chartToggle');
+  mount.innerHTML =
+    '<div class="chart-toggle" role="group" aria-label="chart type">' +
+    '<button type="button" class="chart-toggle-btn" data-mode="bar">{{ t('chart.bar') }}</button>' +
+    '<button type="button" class="chart-toggle-btn" data-mode="line">{{ t('chart.line') }}</button>' +
+    '</div>';
+  mount.querySelectorAll('.chart-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      chartMode = btn.getAttribute('data-mode');
+      mount.querySelectorAll('.chart-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+      if (cached) window.drawChart(document.getElementById('dailyChart'), cached.days, cached.daily, chartMode);
+    });
+  });
+  // 默认折线高亮
+  mount.querySelector('[data-mode="line"]').classList.add('active');
+})();
+document.getElementById('applyFilter').onclick = () => loadLogs(document.getElementById('filterMethod').value, document.getElementById('filterStatus').value);
+document.getElementById('clearFilter').onclick = () => {
+  document.getElementById('filterSearch').value = '';
+  document.getElementById('filterMethod').value = 'ALL';
+  document.getElementById('filterStatus').value = 'ALL';
+  loadLogs('ALL', 'ALL');
+};
+document.getElementById('filterSearch').addEventListener('input', () => { if (cached) renderHistory(cached.history); });
+loadLogs('ALL', 'ALL');
+</script>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.apikeys') }} · APIMiao{% endblock %}
+{% block panel %}
+<div class="page-head">
+  <h1 class="page-title">{{ t('panel.apikeys') }}</h1>
+  <button class="btn btn-primary" id="createKeyBtn"><i class="bi bi-plus"></i> {{ t('keys.create') }}</button>
+</div>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>{{ t('keys.name') }}</th><th>API Key</th><th>{{ t('keys.created') }}</th><th style="width:150px"></th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr data-id="{{ k.id }}">
+        <td class="key-name">{{ k.name }}</td>
+        <td><code class="masked">{{ k.prefix }}•••••••••{{ k.suffix }}</code></td>
+        <td class="date-cell" data-utc="{{ k.created_at }}"></td>
+        <td>
+          <button class="btn btn-xs rename-key">{{ t('keys.rename') }}</button>
+          <button class="btn btn-xs btn-danger del-key">{{ t('keys.delete') }}</button>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="empty">No API keys yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal" id="keyModal">
+  <div class="modal-box">
+    <h3 id="keyModalTitle">{{ t('keys.create') }}</h3>
+    <div id="keyModalBody"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="keyCancel">{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" id="keySave">{{ t('common.save') }}</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal modal-reveal" id="revealModal">
+  <div class="modal-box reveal-box">
+    <button class="reveal-close" id="revealClose" type="button" aria-label="Close"><i class="bi bi-x-lg"></i></button>
+    <h3>{{ t('keys.once') }}</h3>
+    <p class="hint">{{ '请立即复制并妥善保管。关闭此弹窗后，密钥将不再完整显示。' if LANG() == 'zh' else 'Copy and store it safely now. After closing, the full key will not be shown again.' }}</p>
+    <div class="reveal-key"><code id="revealKey"></code></div>
+    <button class="btn btn-primary btn-block" id="revealCopy">{{ t('keys.copy') }}</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const T = { create: "{{ t('keys.create') }}", name: "{{ t('keys.name') }}", once: "{{ t('keys.once') }}", copy: "{{ t('keys.copy') }}", rename: "{{ t('common.rename', rename='Rename') }}" };
+document.getElementById('createKeyBtn').onclick = () => {
+  openKeyModal('create');
+};
+function openKeyModal(mode, id, name) {
+  const title = document.getElementById('keyModalTitle');
+  const body = document.getElementById('keyModalBody');
+  title.textContent = mode === 'create' ? T.create : T.rename;
+  body.innerHTML = '<label>' + T.name + '<input id="keyNameInput" value="' + (name || '') + '"></label>';
+  document.getElementById('keyModal').dataset.mode = mode;
+  document.getElementById('keyModal').dataset.id = id || '';
+  document.getElementById('keyModal').classList.add('show');
+}
+document.getElementById('keyCancel').onclick = () => document.getElementById('keyModal').classList.remove('show');
+document.getElementById('keySave').onclick = async () => {
+  const modal = document.getElementById('keyModal');
+  const name = document.getElementById('keyNameInput').value.trim();
+  if (!name) return;
+  if (modal.dataset.mode === 'create') {
+    const r = await apiPost('/api/api-keys', {name});
+    modal.classList.remove('show');
+    if (r.ok) showReveal(r.key);
+  } else {
+    const r = await apiPost('/api/api-keys/' + modal.dataset.id + '/rename', {name});
+    if (r.ok) location.reload();
+  }
+};
+
+let revealedKey = '';
+function showReveal(key) {
+  revealedKey = key;
+  document.getElementById('revealKey').textContent = key;
+  document.getElementById('revealModal').classList.add('show');
+}
+document.getElementById('revealCopy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(revealedKey);
+    const btn = document.getElementById('revealCopy');
+    const old = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Copied';
+    setTimeout(() => btn.innerHTML = old, 1500);
+  } catch (e) { alert('Copy failed, please select the key manually.'); }
+};
+// 仅用户手动点左上角 X 关闭，关闭后刷新列表以显示新 key
+document.getElementById('revealClose').onclick = () => {
+  document.getElementById('revealModal').classList.remove('show');
+  location.reload();
+};
+document.querySelectorAll('.rename-key').forEach(btn => btn.onclick = () => {
+  const tr = btn.closest('tr');
+  openKeyModal('rename', tr.dataset.id, tr.querySelector('.key-name').textContent);
+});
+document.querySelectorAll('.del-key').forEach(btn => btn.onclick = async () => {
+  if (!confirm('Delete this API key?')) return;
+  const r = await apiDelete('/api/api-keys/' + btn.closest('tr').dataset.id);
+  if (r.ok) location.reload();
+});
+</script>
+{% endblock %}
