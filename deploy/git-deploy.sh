@@ -47,7 +47,7 @@ git reset --hard "$TARGET"
 
 if [ -z "$PREVIOUS" ] || ! git diff --quiet "$PREVIOUS" "$TARGET" -- requirements.txt; then
   echo "[APIMiao] Installing Python dependencies"
-  .venv/bin/pip install -r requirements.txt
+  .venv/bin/pip install -q -r requirements.txt
 else
   echo "[APIMiao] Dependencies unchanged"
 fi
@@ -64,12 +64,17 @@ systemctl restart apimiao apimiao-scheduler
 
 echo "[APIMiao] Health check"
 systemctl is-active apimiao apimiao-scheduler caddy
-for _ in $(seq 1 20); do
+HEALTH_OK=0
+for _ in $(seq 1 30); do
   if curl -fsS -o /dev/null http://127.0.0.1:8080/; then
+    HEALTH_OK=1
     break
   fi
   sleep 1
 done
-curl -fsS -o /dev/null http://127.0.0.1:8080/
+if [ "$HEALTH_OK" -ne 1 ]; then
+  echo "[APIMiao] Health check failed" >&2
+  exit 1
+fi
 echo "$TARGET" > .last_deploy
 echo "[APIMiao] Deployed $TARGET"
