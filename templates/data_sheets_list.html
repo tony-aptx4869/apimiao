@@ -1,13 +1,17 @@
 {% extends "panel_base.html" %}
 {% block title %}{{ t('sheet.title') }} · APIMiao{% endblock %}
 {% block panel %}
-<h1 class="page-title">{{ t('sheet.title') }}</h1>
+<div class="page-head">
+  <h1 class="page-title">{{ t('sheet.title') }}</h1>
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('data_sheets.data_sheets_new') }}"><i class="bi bi-plus"></i> {{ t('sheet.new') }}</a>
+  </div>
+</div>
 <div id="sheetError" class="alert alert-error" style="display:none"></div>
-<div class="toolbar"><a class="btn btn-primary" href="{{ url_for('data_sheets.data_sheets_new') }}">{{ t('sheet.new') }}</a></div>
-<div class="panel-card"><div class="table-wrap"><table class="data-table">
+<div class="table-wrap"><table class="data-table">
   <thead><tr><th>{{ t('sheet.name') }}</th><th>{{ t('sheet.description') }}</th><th>{{ t('sheet.fields') }}</th><th>{{ t('api.created') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
   <tbody id="sheetRows"></tbody>
-</table></div></div>
+</table></div>
 {% endblock %}
 {% block scripts %}
 <script>
