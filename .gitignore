@@ -8,4 +8,5 @@ data/initial_password.txt
 data/secret_key
 data/backups/
 config.ini
+config.ini.bak*
 .DS_Store
