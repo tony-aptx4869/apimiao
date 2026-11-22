@@ -10,4 +10,5 @@ data/backups/
 data/*.bak*
 config.ini
 config.ini.bak*
+.last_deploy
 .DS_Store
