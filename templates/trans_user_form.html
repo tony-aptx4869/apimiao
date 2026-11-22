@@ -8,6 +8,7 @@
 .tu-columns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; }
 .tu-columns > .panel-card { margin-bottom: 0; }
 .tu-columns .mapping-grid { grid-template-columns: 1fr; }
+.tu-advanced { margin-top: 24px; }
 @media (max-width: 900px) { .tu-columns { grid-template-columns: 1fr; } .tu-columns > .panel-card { margin-bottom: 20px; } }
 </style>
 
@@ -55,11 +56,10 @@
 </div>
 </div>
 
-<div class="panel-card">
+<div class="panel-card tu-advanced">
 <h2>{{ t('trans.section.advanced') }}</h2>
+<p class="hint">{{ 'TRANS User 从本地数据表查询，不向上游 API 发请求；超时和重试不参与用户请求。这里只限制每分钟请求次数，0 表示不限制。' if LANG() == 'zh' else 'TRANS User reads local data sheets and makes no upstream API request. Timeout and retry do not apply. This rate limit is requests per minute; 0 means unlimited.' }}</p>
 <div class="form-row">
-  <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.timeout|default(10) }}"></label>
-  <label>{{ t('api.retry') }}<input id="retry" type="number" value="{{ cfg.retry|default(0) }}"></label>
   <label>{{ t('api.ratelimit') }}<input id="rate_limit" type="number" value="{{ cfg.rate_limit|default(0) }}"></label>
 </div>
 </div>

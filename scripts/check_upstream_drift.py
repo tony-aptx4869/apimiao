@@ -2,13 +2,21 @@
 """Check platform behavior when an upstream response drifts from fixed fields."""
 import json
 import sys
+import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+import app.db as dbmod
+
+TMP_DIR = Path(tempfile.mkdtemp(prefix="apimiao-upstream-drift-"))
+dbmod.DB_PATH = TMP_DIR / "apimiao.db"
 
 from app import create_app
 from app.api import trans_origin as to
 from app.data_sheets.service import create_sheet, delete_sheet
+from app.db import all_rows
 from config import ADMIN_ID
 
 FIELDS = [
@@ -47,6 +55,7 @@ def run_case(name, body, expect_success, expect_payloads, expect_paths, expect_s
         "original_url": "http://upstream.invalid",
     }
     cfg = {
+        "original_url": origin["original_url"],
         "sheet_id": CURRENT_SHEET_ID,
         "params_json": "[]",
         "headers_json": "[]",
@@ -91,6 +100,15 @@ def main():
         finally:
             to.do_request = original_request
             delete_sheet(ADMIN_ID, CURRENT_SHEET_ID)
+        endpoints = [row["endpoint"] for row in all_rows(
+            "SELECT endpoint FROM request_logs WHERE event_type=?", ("UPSTREAM_TRANS",)
+        )]
+    RESULT.append({
+        "case": "upstream_log_endpoint_recorded",
+        "ok": bool(endpoints) and all("upstream.invalid" in endpoint for endpoint in endpoints),
+        "count": len(endpoints),
+        "sample": endpoints[0] if endpoints else "",
+    })
     print(json.dumps(RESULT, ensure_ascii=False, indent=2))
     return 0 if all(item["ok"] for item in RESULT) else 1
 

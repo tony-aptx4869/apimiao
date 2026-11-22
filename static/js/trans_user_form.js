@@ -408,7 +408,6 @@ $('saveBtn').onclick=async()=>{
     sheet_ids:selectedSheets, joins:joins, sheet_fields:sheetFields,
     param_mapping:mappings.params, body_mapping:[],
     output_tree:outputTree,
-    timeout:parseInt($('timeout').value)||10, retry:parseInt($('retry').value)||0,
     rate_limit:parseInt($('rate_limit').value)||0
   };
   const r=USER_ID?await apiFetch('/api/trans-apis/'+USER_ID,'PUT',payload):await apiPost('/api/trans-apis',payload);

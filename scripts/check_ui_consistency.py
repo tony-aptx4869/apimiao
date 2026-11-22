@@ -72,6 +72,10 @@ def source_contracts():
                               and "location.origin + '/' + b.dataset.path" in user,
         "user_copy_action": '<i class="bi bi-plus-square"></i> {{ t(\'common.copy\') }}' in user,
         "form_chinese_hints": "选择数据表后，可拖动字段到 Params 或返回数据树" in form,
+        "advanced_spacing": "tu-advanced" in form and "margin-top: 24px" in form,
+        "no_dead_timeout_retry": 'id="timeout"' not in form and 'id="retry"' not in form
+                                  and "$('timeout')" not in js and "$('retry')" not in js,
+        "advanced_semantics_hint": "超时和重试不参与用户请求" in form,
         "single_sheet_join_guard": "selectedSheets.length < 2" in js
                                    and "src.sheet===target.dataset.sheet" in js,
     }

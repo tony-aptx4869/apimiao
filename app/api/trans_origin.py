@@ -233,6 +233,9 @@ def log_upstream_request(cfg, values, status, success, duration_ms, origin=None)
     if not user_id:
         return
     method, endpoint = redact_request_url(cfg, values)
+    if not endpoint:
+        endpoint = str((origin or {}).get("original_url") or cfg.get("original_url")
+                       or (origin or {}).get("id") or "unknown")
     log_request(
         user_id, (origin or {}).get("id") or cfg.get("id") or "", method, endpoint,
         status, success, duration_ms, "", event_type="UPSTREAM_TRANS",
