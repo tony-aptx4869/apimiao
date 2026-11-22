@@ -61,6 +61,7 @@ def source_contracts():
     user = (ROOT / "templates/trans_user_list.html").read_text(encoding="utf-8")
     form = (ROOT / "templates/trans_user_form.html").read_text(encoding="utf-8")
     js = (ROOT / "static/js/trans_user_form.js").read_text(encoding="utf-8")
+    backend = (ROOT / "app/api/trans_user.py").read_text(encoding="utf-8")
     return {
         "proxy_action_order": ordered(proxy, 'class="btn btn-xs btn-outline copy-api"',
                                       'class="btn btn-xs btn-outline edit-api"',
@@ -83,6 +84,16 @@ def source_contracts():
                                   and "#outputTree .output-node, #outputTree .output-node-row" in js
                                   and "blockOutputNodeDrag();" in js
                                   and "function restoreOutputNodeDraggable()" in js,
+        "output_node_key_only": "output-node-name" not in js
+                                and "key:'Key 名称'" in js
+                                and "key:'Key Name'" in js
+                                and "legacyName" not in js
+                                and "output_key = str(node.get(\"key\") or \"\")" in backend,
+        "root_key_disabled": "const isRoot = node.id===outputTree.id" in js
+                             and "const keyDisabled = isRoot ? 'disabled' : ''" in js
+                             and "${keyDisabled}" in js,
+        "field_key_from_source_leaf": "sourceKey.split('.').pop()||sourceKey" in js
+                                      and "out[output_key or source_key]" in backend,
     }
 
 

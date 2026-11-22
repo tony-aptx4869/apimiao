@@ -325,7 +325,7 @@ html[lang="zh"] .output-tree:empty::before { content: "默认根节点（对象�
 .output-node-type { flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 5px; background: #eff6ff; color: #1d4ed8; user-select: none; }
 .output-node-type.type-array { background: #ecfdf5; color: #047857; }
 .output-node-type.type-field { background: #f5f3ff; color: #6d28d9; }
-.output-node-name, .output-node-key { flex: 1 1 140px; min-width: 110px; width: auto; font-size: 12px; padding: 5px 8px; }
+.output-node-key { flex: 1 1 140px; min-width: 110px; width: auto; font-size: 12px; padding: 5px 8px; }
 .output-node-source { font-size: 11px; color: var(--muted); flex: 0 0 auto; user-select: none; }
 .output-node-del { flex: 0 0 auto; }
 .output-node-children { margin: 0 8px 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 8px; min-height: 40px; }

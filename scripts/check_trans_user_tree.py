@@ -89,6 +89,11 @@ def run():
             ]},
         ],
     }
+    empty_key_tree = {
+        "id": "root", "type": "object", "key": "", "field_id": "", "children": [
+            {"id": "f-price-empty", "type": "field", "key": "", "field_id": price_id, "children": []},
+        ],
+    }
 
     with app.test_client() as client:
         login(client)
@@ -103,6 +108,13 @@ def run():
         ))
         record("flat_api_created", flat_created.status_code == 200, f"status={flat_created.status_code}")
         flat_id = flat_created.get_json().get("id", "")
+
+        empty_key_created = client.post("/api/trans-apis", json=api_payload(
+            sheet_id, fields, "emptykey/check", empty_key_tree
+        ))
+        record("empty_key_api_created", empty_key_created.status_code == 200,
+               f"status={empty_key_created.status_code}")
+        empty_key_id = empty_key_created.get_json().get("id", "")
 
         invalid = client.post("/api/trans-apis", json=api_payload(
             sheet_id, fields, "invalid/check", {"id": "bad", "type": "nope", "children": []}
@@ -126,6 +138,14 @@ def run():
                        "prices": [{"p0": "7.82"}],
                    },
                    f"row={rows[0] if rows else None}")
+
+            empty_key_row = dict(next(r for r in all_rows("SELECT * FROM trans_apis") if r["id"] == empty_key_id))
+            empty_key_rows, empty_key_err = execute_query(empty_key_row, {"prov": "北京"})
+            record("empty_field_key_uses_full_source",
+                   empty_key_err is None and empty_key_rows and empty_key_rows[0] == {
+                       "result.p0.price": "7.82",
+                   },
+                   f"row={empty_key_rows[0] if empty_key_rows else None} err={empty_key_err}")
 
             flat_rows, flat_err = execute_query(flat_row, {"prov": "上海"})
             record("empty_tree_keeps_flat_output",

@@ -42,16 +42,17 @@ def _children_dict(node, merged, field_keys):
 def _append_node(out, node, merged, field_keys):
     if not isinstance(node, dict):
         return
-    output_key = str(node.get("key") or node.get("name") or "")
-    if not output_key:
-        return
+    output_key = str(node.get("key") or "")
     kind = node.get("type")
     if kind == "field":
         field_id = str(node.get("field_id") or "")
         source_key = field_keys.get(field_id) or output_key
         if source_key in merged:
-            out[output_key] = merged[source_key]
-    elif kind == "object":
+            out[output_key or source_key] = merged[source_key]
+        return
+    if not output_key:
+        return
+    if kind == "object":
         out[output_key] = _children_dict(node, merged, field_keys)
     elif kind == "array":
         out[output_key] = [_children_dict(node, merged, field_keys)]

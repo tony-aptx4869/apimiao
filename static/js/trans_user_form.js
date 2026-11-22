@@ -15,15 +15,15 @@ let sheetMeta = {};
 
 const OUTPUT_NODE_TYPES = ['object', 'array', 'field'];
 function genNodeId(){ return 'node-' + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
-function defaultOutputTree(){ return { id: genNodeId(), type: 'object', name: 'root', key: '', field_id: '', children: [] }; }
+function defaultOutputTree(){ return { id: genNodeId(), type: 'object', key: '', field_id: '', children: [] }; }
 function normalizeOutputNode(raw){
   if(!raw || typeof raw !== 'object') return null;
   const type = OUTPUT_NODE_TYPES.includes(raw.type) ? raw.type : 'field';
+  const savedKey = typeof raw.key === 'string' ? raw.key : '';
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : genNodeId(),
     type: type,
-    name: typeof raw.name === 'string' ? raw.name : '',
-    key: typeof raw.key === 'string' ? raw.key : '',
+    key: savedKey,
     field_id: typeof raw.field_id === 'string' ? raw.field_id : '',
     children: type === 'field' ? [] : (Array.isArray(raw.children) ? raw.children.map(normalizeOutputNode).filter(Boolean) : [])
   };
@@ -308,20 +308,21 @@ function insertOutputNode(node, targetId, mode){
 function renderOutputNode(node){
   const isContainer = node.type!=='field';
   const labels = ZH
-    ? {object:'对象', array:'数组', field:'字段', source:'来源', unbound:'未绑定', del:'删除节点', name:'显示名称', key:'输出 key'}
-    : {object:'Object', array:'Array', field:'Field', source:'Source', unbound:'Unbound', del:'Delete node', name:'Display name', key:'Output key'};
+    ? {object:'对象', array:'数组', field:'字段', source:'来源', unbound:'未绑定', del:'删除节点', key:'Key 名称'}
+    : {object:'Object', array:'Array', field:'Field', source:'Source', unbound:'Unbound', del:'Delete node', key:'Key Name'};
   const typeLabel = labels[node.type] || labels.field;
   const sourceKey = findFieldKeyById(node.field_id)||node.field_id||labels.unbound;
   const source = node.type==='field'
     ? `<span class="output-node-source" draggable="true">${labels.source} ${esc(sourceKey)}</span>` : '';
   const children = isContainer
     ? `<div class="output-node-children">${(node.children||[]).map(renderOutputNode).join('')}</div>` : '';
-  const delBtn = node.id===outputTree.id ? '' : `<button type="button" class="btn btn-xs btn-danger output-node-del" title="${labels.del}">&times;</button>`;
+  const isRoot = node.id===outputTree.id;
+  const delBtn = isRoot ? '' : `<button type="button" class="btn btn-xs btn-danger output-node-del" title="${labels.del}">&times;</button>`;
+  const keyDisabled = isRoot ? 'disabled' : '';
   return `<div class="output-node" data-id="${esc(node.id)}" draggable="true">
     <div class="output-node-row" draggable="true">
       <span class="output-node-type type-${node.type}" draggable="true">${typeLabel}</span>
-      <input class="output-node-name" value="${esc(node.name)}" placeholder="${labels.name}" draggable="false">
-      <input class="output-node-key" value="${esc(node.key)}" placeholder="${labels.key}" draggable="false">
+      <input class="output-node-key" value="${esc(node.key)}" placeholder="${labels.key}" draggable="false" ${keyDisabled}>
       ${source}
       ${delBtn}
     </div>
@@ -345,7 +346,8 @@ function handleOutputDrop(e, targetId, mode){
   try { src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); } catch(_) { return; }
   const f=resolveFieldIdentity(src);
   if(!f.field_id) return;
-  const fieldNode={ id:genNodeId(), type:'field', name:f.field||'', key:f.field||'', field_id:f.field_id, children:[] };
+  const sourceKey=findFieldKeyById(f.field_id)||f.field||'';
+  const fieldNode={ id:genNodeId(), type:'field', key:sourceKey.split('.').pop()||sourceKey, field_id:f.field_id, children:[] };
   insertOutputNode(fieldNode,targetId,mode);
   renderOutputTree();
 }
@@ -416,10 +418,6 @@ function bindOutputTreeEvents(box){
     detachOutputNode(b.closest('.output-node').dataset.id);
     renderOutputTree();
   });
-  box.querySelectorAll('.output-node-name').forEach(inp=>inp.onchange=()=>{
-    const n=findOutputNode(inp.closest('.output-node').dataset.id);
-    if(n) n.name=inp.value.trim();
-  });
   box.querySelectorAll('.output-node-key').forEach(inp=>inp.onchange=()=>{
     const n=findOutputNode(inp.closest('.output-node').dataset.id);
     if(n) n.key=inp.value.trim();
@@ -435,8 +433,8 @@ function renderOutputTree(){
   bindOutputTreeEvents(box);
 }
 
-$('outputAddObject').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'object',name:'',key:'',children:[]}); renderOutputTree(); };
-$('outputAddArray').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'array',name:'',key:'',children:[]}); renderOutputTree(); };
+$('outputAddObject').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'object',key:'',children:[]}); renderOutputTree(); };
+$('outputAddArray').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'array',key:'',children:[]}); renderOutputTree(); };
 $('outputReset').onclick=()=>{ outputTree=defaultOutputTree(); renderOutputTree(); };
 
 $('saveBtn').onclick=async()=>{
