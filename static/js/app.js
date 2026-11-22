@@ -34,7 +34,19 @@ function formatDates(root) {
     el.textContent = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   });
 }
-document.addEventListener('DOMContentLoaded', () => formatDates());
+function observeDates() {
+  const observer = new MutationObserver(mutations => {
+    const hasDateCell = mutations.some(mutation =>
+      Array.from(mutation.addedNodes).some(node =>
+        node.nodeType === 1 &&
+        (node.matches('.date-cell[data-utc]') || node.querySelector('.date-cell[data-utc]'))
+      )
+    );
+    if (hasDateCell) formatDates(document);
+  });
+  observer.observe(document.body, {childList: true, subtree: true});
+}
+document.addEventListener('DOMContentLoaded', () => { formatDates(); observeDates(); });
 
 document.getElementById('langBtn')?.addEventListener('click', e => {
   e.stopPropagation();
