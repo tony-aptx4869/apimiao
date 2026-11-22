@@ -134,8 +134,8 @@ def create_sheet(user_id, payload):
     sheet_id = new_id()
     now = utcnow()
     db.execute(
-        "INSERT INTO data_sheets (id, user_id, name, description, origin_id, fields_json, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, NULL, '[]', ?, ?)",
+        "INSERT INTO data_sheets (id, user_id, name, description, fields_json, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, '[]', ?, ?)",
         (sheet_id, user_id, draft.name, draft.description, now, now),
     )
     _write_fields(sheet_id, draft.fields)

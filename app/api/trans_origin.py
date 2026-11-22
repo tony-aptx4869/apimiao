@@ -11,7 +11,7 @@ import time
 import httpx
 
 from config import CARTESIAN_LIMIT
-from ..db import all_rows, canonical_params, execute, get_db, new_id, one, utcnow
+from ..db import all_rows, canonical_params, get_db, new_id, one, utcnow
 from ..json_path import resolve_root
 from ..utils import PLACEHOLDER_RE, merge_url_params
 
@@ -263,27 +263,6 @@ def extract_payload(body_text, result_path, fields_cfg=None):
     if not isinstance(root, dict):
         raise ValueError("Resolved result node must be a JSON object")
     return extract_fields(json.dumps(root, ensure_ascii=False), fields_cfg)
-
-
-def ensure_sheet(user_id, origin_id, sheet_name, field_names, replace_fields=False):
-    """获取或创建逻辑数据表记录，返回 sheet_id。"""
-    row = one("SELECT id FROM data_sheets WHERE user_id = ? AND name = ? AND origin_id = ?",
-              (user_id, sheet_name, origin_id))
-    fields_json = json.dumps(
-        [{"name": n, "enabled": True, "order": i} for i, n in enumerate(field_names)],
-        ensure_ascii=False,
-    )
-    if row:
-        if replace_fields:
-            execute("UPDATE data_sheets SET fields_json = ?, origin_id = ? WHERE id = ?",
-                    (fields_json, origin_id, row["id"]))
-        return row["id"]
-    sheet_id = new_id()
-    execute(
-        "INSERT INTO data_sheets (id, user_id, name, origin_id, fields_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (sheet_id, user_id, sheet_name, origin_id, fields_json, utcnow()),
-    )
-    return sheet_id
 
 
 # ---------------- 完整批次采集 ----------------

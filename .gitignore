@@ -6,5 +6,6 @@ data/apimiao.db-wal
 data/apimiao.db-shm
 data/initial_password.txt
 data/secret_key
+data/backups/
 config.ini
 .DS_Store

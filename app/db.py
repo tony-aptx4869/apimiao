@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
 TRANS_REWRITE_VERSION = "001_trans_rewrite"
 TRANS_HARDENING_VERSION = "002_trans_hardening"
+TRANS_CLEANUP_VERSION = "003_trans_cleanup"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -368,6 +369,13 @@ def _backfill_sheet_fields(conn, report):
 
 
 def _backfill_origins(conn, report):
+    origin_cols = _column_names(conn, "trans_origins")
+    if "sheet_name" not in origin_cols:
+        conn.execute(
+            "UPDATE trans_origins SET result_path = COALESCE(result_path, ''), "
+            "state = COALESCE(NULLIF(state, ''), 'DRAFT') WHERE result_path IS NULL OR state IS NULL OR state = ''"
+        )
+        return
     for origin in conn.execute("SELECT id, user_id, sheet_name FROM trans_origins"):
         sheet_id = origin["sheet_name"] and conn.execute(
             "SELECT id FROM data_sheets WHERE user_id = ? AND name = ?",
@@ -382,8 +390,8 @@ def _backfill_origins(conn, report):
             if not sheet_id:
                 sheet_id_value = new_id()
                 conn.execute(
-                    "INSERT INTO data_sheets (id, user_id, name, description, origin_id, fields_json, created_at, updated_at) "
-                    "VALUES (?, ?, ?, '', NULL, '[]', ?, ?)",
+                    "INSERT INTO data_sheets (id, user_id, name, description, fields_json, created_at, updated_at) "
+                    "VALUES (?, ?, ?, '', '[]', ?, ?)",
                     (sheet_id_value, origin["user_id"], name, utcnow(), utcnow()),
                 )
                 report["sheets_created"] += 1
@@ -523,9 +531,12 @@ def apply_trans_hardening_migration(conn):
     ).rowcount
     migration_path = MIGRATIONS_DIR / "002_trans_hardening.sql"
     conn.executescript(migration_path.read_text(encoding="utf-8"))
-    report["states_normalized"] = conn.execute(
-        "UPDATE trans_origins SET state = 'ENABLED' WHERE state = 'VERIFIED' AND enabled = 1"
-    ).rowcount
+    if "enabled" in _column_names(conn, "trans_origins"):
+        report["states_normalized"] = conn.execute(
+            "UPDATE trans_origins SET state = 'ENABLED' WHERE state = 'VERIFIED' AND enabled = 1"
+        ).rowcount
+    else:
+        report["states_normalized"] = 0
     applied = conn.execute(
         "SELECT 1 FROM schema_migrations WHERE version = ?", (TRANS_HARDENING_VERSION,)
     ).fetchone()
@@ -538,6 +549,34 @@ def apply_trans_hardening_migration(conn):
     else:
         report["applied"] = False
     conn.commit()
+    return report
+
+
+def apply_trans_cleanup_migration(conn):
+    """Drop legacy TRANS columns after verifying no code path reads them."""
+    report = {"version": TRANS_CLEANUP_VERSION, "dropped": []}
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (TRANS_CLEANUP_VERSION,)
+    ).fetchone()
+    if applied:
+        report["applied"] = False
+        return report
+    targets = (
+        ("trans_origins", "sheet_name"),
+        ("trans_origins", "verified"),
+        ("trans_origins", "enabled"),
+        ("data_sheets", "origin_id"),
+    )
+    for table, column in targets:
+        if column in _column_names(conn, table):
+            conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+            report["dropped"].append(f"{table}.{column}")
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (TRANS_CLEANUP_VERSION, utcnow()),
+    )
+    conn.commit()
+    report["applied"] = True
     return report
 
 
@@ -589,6 +628,7 @@ def migrate_database(path=None, dry_run=False):
     try:
         report = apply_trans_rewrite_migration(conn)
         report["hardening"] = apply_trans_hardening_migration(conn)
+        report["cleanup"] = apply_trans_cleanup_migration(conn)
     finally:
         conn.close()
     report["dry_run"] = dry_run
@@ -615,6 +655,7 @@ def init_db(seed_admin=True):
         _migrate(conn)
         apply_trans_rewrite_migration(conn)
         apply_trans_hardening_migration(conn)
+        apply_trans_cleanup_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()

@@ -41,7 +41,6 @@ def _origin_config(row):
         "sheet_id": row["sheet_id"] if "sheet_id" in row.keys() else "",
         "result_path": row["result_path"] if "result_path" in row.keys() else "",
         "state": row["state"] if "state" in row.keys() else "DRAFT",
-        "verified": row["verified"], "enabled": row["enabled"],
         "created_at": row["created_at"] if "created_at" in row.keys() else "",
     }
 
@@ -212,26 +211,20 @@ def trans_origin_precheck():
 
 
 def _save_origin(origin_id, user_id, cfg, verified, is_new):
-    """插入或更新 trans_origins 记录。"""
-    sheet = one("SELECT name FROM data_sheets WHERE id = ? AND user_id = ?",
-                (cfg["sheet_id"], user_id))
-    if not sheet:
-        raise ValueError("Data Sheet not found")
+    """Insert or update trans_origins using the state enum only."""
     cols = ("note", "original_url", "original_method", "original_key", "params_json",
             "headers_json", "cookies_json", "body_mode", "body", "encoding", "timeout",
             "retry", "request_interval", "frequency", "days_json", "times_json",
             "sheet_id", "result_path", "state")
     vals = [cfg[c] for c in cols[:-1]] + ["ENABLED" if verified else "DRAFT"]
-    legacy_name = sheet["name"]
     if is_new:
         sql = ("INSERT INTO trans_origins (id, user_id, " + ", ".join(cols) +
-               ", sheet_name, verified, enabled, created_at) VALUES (" +
-               ", ".join(["?"] * (len(cols) + 6)) + ")")
-        execute(sql, (origin_id, user_id, *vals, legacy_name, verified, 1, utcnow()))
+               ", created_at) VALUES (" + ", ".join(["?"] * (len(cols) + 3)) + ")")
+        execute(sql, (origin_id, user_id, *vals, utcnow()))
     else:
         sql = ("UPDATE trans_origins SET " + ", ".join(f"{c}=?" for c in cols) +
-               ", sheet_name=?, verified=?, enabled=1 WHERE id=? AND user_id=?")
-        execute(sql, (*vals, legacy_name, verified, origin_id, user_id))
+               " WHERE id=? AND user_id=?")
+        execute(sql, (*vals, origin_id, user_id))
 
 
 @bp.route("/api/trans-origins", methods=["POST"])
@@ -263,7 +256,7 @@ def trans_origin_update(origin_id):
     err = _validate(cfg)
     if err:
         return error(err, 400)
-    verified = 1 if data.get("verified") else row["verified"]
+    verified = 1 if data.get("verified") else (1 if row["state"] == "ENABLED" else 0)
     _save_origin(origin_id, session["uid"], cfg, verified, False)
     return ok()
 
