@@ -221,7 +221,7 @@ def _save_origin(origin_id, user_id, cfg, verified, is_new):
             "headers_json", "cookies_json", "body_mode", "body", "encoding", "timeout",
             "retry", "request_interval", "frequency", "days_json", "times_json",
             "sheet_id", "result_path", "state")
-    vals = [cfg[c] for c in cols[:-1]] + ["VERIFIED" if verified else "DRAFT"]
+    vals = [cfg[c] for c in cols[:-1]] + ["ENABLED" if verified else "DRAFT"]
     legacy_name = sheet["name"]
     if is_new:
         sql = ("INSERT INTO trans_origins (id, user_id, " + ", ".join(cols) +

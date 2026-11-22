@@ -4,7 +4,7 @@ import json
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from flask import current_app, g, has_request_context
@@ -14,6 +14,7 @@ from config import DB_PATH, ADMIN_ID, ADMIN_EMAIL
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
 TRANS_REWRITE_VERSION = "001_trans_rewrite"
+TRANS_HARDENING_VERSION = "002_trans_hardening"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -513,6 +514,53 @@ def apply_trans_rewrite_migration(conn):
     return report
 
 
+def apply_trans_hardening_migration(conn):
+    """Add batch idempotency key and normalize enabled Origins to the state enum."""
+    report = {"version": TRANS_HARDENING_VERSION, "batch_keys_backfilled": 0, "states_normalized": 0}
+    _ensure_column(conn, "fetch_batches", "batch_key", "TEXT")
+    report["batch_keys_backfilled"] = conn.execute(
+        "UPDATE fetch_batches SET batch_key = id WHERE batch_key IS NULL OR batch_key = ''"
+    ).rowcount
+    migration_path = MIGRATIONS_DIR / "002_trans_hardening.sql"
+    conn.executescript(migration_path.read_text(encoding="utf-8"))
+    report["states_normalized"] = conn.execute(
+        "UPDATE trans_origins SET state = 'ENABLED' WHERE state = 'VERIFIED' AND enabled = 1"
+    ).rowcount
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (TRANS_HARDENING_VERSION,)
+    ).fetchone()
+    if not applied:
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (TRANS_HARDENING_VERSION, utcnow()),
+        )
+        report["applied"] = True
+    else:
+        report["applied"] = False
+    conn.commit()
+    return report
+
+
+def prune_trans_retention():
+    """Delete old snapshots and logs when retention days are configured."""
+    from config import TRANS_LOG_RETENTION_DAYS, TRANS_ROW_RETENTION_DAYS
+
+    db = get_db()
+    removed = {"rows": 0, "logs": 0}
+    if TRANS_ROW_RETENTION_DAYS > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=TRANS_ROW_RETENTION_DAYS)
+        removed["rows"] = db.execute(
+            "DELETE FROM data_rows WHERE fetched_at < ?", (cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),)
+        ).rowcount
+    if TRANS_LOG_RETENTION_DAYS > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=TRANS_LOG_RETENTION_DAYS)
+        removed["logs"] = db.execute(
+            "DELETE FROM fetch_logs WHERE fetched_at < ?", (cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),)
+        ).rowcount
+    db.commit()
+    return removed
+
+
 def migrate_database(path=None, dry_run=False):
     """独立迁移入口。dry_run 时只修改临时副本。"""
     import shutil
@@ -540,6 +588,7 @@ def migrate_database(path=None, dry_run=False):
     conn = _connect_path(target)
     try:
         report = apply_trans_rewrite_migration(conn)
+        report["hardening"] = apply_trans_hardening_migration(conn)
     finally:
         conn.close()
     report["dry_run"] = dry_run
@@ -565,6 +614,7 @@ def init_db(seed_admin=True):
         conn.executescript(SCHEMA)
         _migrate(conn)
         apply_trans_rewrite_migration(conn)
+        apply_trans_hardening_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()

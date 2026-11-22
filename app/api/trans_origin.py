@@ -345,16 +345,20 @@ def collect_batch(origin, cfg_override=None):
             "errors": errors, "items": items, "payloads": payloads, "field_names": field_names}
 
 
-def commit_batch(origin, cfg, collected, triggered_by="PRECHECK"):
+def commit_batch(origin, cfg, collected, triggered_by="PRECHECK", batch_key=""):
     """Commit one collection batch atomically into the chosen Data Sheet."""
     batch_id = new_id()
+    key = batch_key or batch_id
     sheet_id = origin["sheet_id"]
     db = get_db()
+    existing = one("SELECT id FROM fetch_batches WHERE batch_key = ?", (key,))
+    if existing:
+        return {"batch_id": existing["id"], "sheet_id": sheet_id, "skipped": True}
     try:
         db.execute(
-            "INSERT INTO fetch_batches (id, origin_id, user_id, triggered_by, started_at, total, success, failed, finished_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (batch_id, origin["id"], origin["user_id"], triggered_by, utcnow(), collected["total"],
+            "INSERT INTO fetch_batches (id, batch_key, origin_id, user_id, triggered_by, started_at, total, success, failed, finished_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (batch_id, key, origin["id"], origin["user_id"], triggered_by, utcnow(), collected["total"],
              collected["total"] - collected["failed"], collected["failed"], utcnow()),
         )
         for item in collected["items"]:
@@ -380,12 +384,14 @@ def commit_batch(origin, cfg, collected, triggered_by="PRECHECK"):
     return {"batch_id": batch_id, "sheet_id": sheet_id}
 
 
-def run_batch(origin, triggered_by="SCHEDULE", cfg_override=None, save_data=True):
+def run_batch(origin, triggered_by="SCHEDULE", cfg_override=None, save_data=True, batch_key=""):
     """执行完整一轮采集并落库（定时任务/手动触发用）。"""
     collected = collect_batch(origin, cfg_override)
     if not save_data:
         return collected
-    committed = commit_batch(origin, cfg_override or dict(origin), collected, triggered_by)
+    committed = commit_batch(
+        origin, cfg_override or dict(origin), collected, triggered_by, batch_key=batch_key
+    )
     return {**collected, **committed}
 
 

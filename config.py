@@ -139,3 +139,5 @@ TIMEZONE = _get("general", "timezone", "Asia/Shanghai").strip() or "Asia/Shangha
 # ---------------- trans：TRANS 模块 ----------------
 # 列表笛卡尔积组合数上限（0 或负数 = 不限制）。新建/编辑 Origin 保存时与定时采集时都校验。
 CARTESIAN_LIMIT = _int(_get("trans", "cartesian_limit", "10000"), 10000)
+TRANS_ROW_RETENTION_DAYS = _int(_get("trans", "row_retention_days", "0"), 0)
+TRANS_LOG_RETENTION_DAYS = _int(_get("trans", "log_retention_days", "0"), 0)

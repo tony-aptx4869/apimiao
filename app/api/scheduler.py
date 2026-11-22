@@ -8,26 +8,28 @@
 
 任务函数内部需要 Flask app context，因为 db helpers 依赖 flask.g。
 """
+import hashlib
 import time
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..db import all_rows, one
+from ..db import all_rows, one, prune_trans_retention
 
 _scheduler = None
 SYNC_INTERVAL = 60
 
 
-def _job(app, origin_id):
+def _job(app, origin_id, job_id):
     """在 app context 内执行 TRANS Origin 采集。"""
-    from ..db import one
     from .trans_origin import run_batch
     with app.app_context():
-        row = one("SELECT * FROM trans_origins WHERE id = ? AND enabled = 1", (origin_id,))
+        row = one("SELECT * FROM trans_origins WHERE id = ? AND state = 'ENABLED'", (origin_id,))
         if row:
-            run_batch(dict(row), triggered_by="SCHEDULE")
+            bucket = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
+            run_batch(dict(row), triggered_by="SCHEDULE", batch_key=f"{job_id}:{bucket}")
+            prune_trans_retention()
 
 
 def _trigger_for(cfg):
@@ -67,18 +69,21 @@ def sync_jobs(app):
     if _scheduler is None:
         return
     with app.app_context():
-        rows = all_rows("SELECT id, frequency, days_json, times_json FROM trans_origins WHERE enabled = 1")
+        rows = all_rows("SELECT id, frequency, days_json, times_json FROM trans_origins WHERE state = 'ENABLED'")
         desired = {}
         for row in rows:
+            signature = hashlib.sha256(
+                f"{row['frequency']}|{row['days_json']}|{row['times_json']}".encode("utf-8")
+            ).hexdigest()[:8]
             for suffix, trigger in _trigger_for(_origin_schedule(row)):
-                desired[f"trans_{row['id']}_{suffix}"] = (row["id"], trigger)
+                desired[f"trans_{row['id']}_{suffix}_{signature}"] = (row["id"], trigger)
 
     current = {job.id for job in _scheduler.get_jobs() if job.id.startswith("trans_")}
     for job_id in current - set(desired):
         _scheduler.remove_job(job_id)
     for job_id, (api_id, trigger) in desired.items():
         _scheduler.add_job(
-            _job, trigger, args=[app, api_id], id=job_id,
+            _job, trigger, args=[app, api_id, job_id], id=job_id,
             replace_existing=True, max_instances=1, coalesce=True,
         )
 

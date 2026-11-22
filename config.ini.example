@@ -69,3 +69,6 @@ email = miao@apimiao.local
 # TRANS Origin 列表参数笛卡尔积组合数上限：超过则拒绝保存与采集，防止请求量爆炸。
 # 设为 0 或负数表示不限制（仅在你完全信任源 API 时使用，有误发大量请求的风险）。
 cartesian_limit = 10000
+# 快照与采集日志保留天数。0 表示不清理。
+row_retention_days = 0
+log_retention_days = 0
