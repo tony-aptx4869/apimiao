@@ -1,13 +1,19 @@
 """SQLite 存储层。WAL 模式 + 外键约束，UTC 时间统一 ISO8601 字符串。"""
+import hashlib
 import json
 import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import current_app, g, has_request_context
 
 from config import DB_PATH, ADMIN_ID, ADMIN_EMAIL
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
+TRANS_REWRITE_VERSION = "001_trans_rewrite"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -293,12 +299,272 @@ def _migrate(conn):
     # 避免旧代码在过渡期引用到已删除的表。
 
 
+def canonical_params(value):
+    """把参数组合序列化成稳定 JSON，并返回 SHA-256 key。"""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            parsed = {"__raw__": value}
+    else:
+        parsed = value if isinstance(value, dict) else {"__raw__": value}
+    text = json.dumps(parsed, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _connect_path(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path), timeout=10)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+def _column_names(conn, table: str) -> set:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _ensure_column(conn, table: str, name: str, ddl: str):
+    if name not in _column_names(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+
+
+def _load_json(value, default):
+    try:
+        loaded = json.loads(value or "")
+    except (ValueError, TypeError):
+        return default
+    return loaded if isinstance(loaded, type(default)) else default
+
+
+def _backfill_sheet_fields(conn, report):
+    for sheet in conn.execute("SELECT id, fields_json FROM data_sheets"):
+        fields = _load_json(sheet["fields_json"], [])
+        for index, field in enumerate(fields):
+            if not isinstance(field, dict):
+                continue
+            key = str(field.get("name") or "").strip()
+            if not key:
+                continue
+            exists = conn.execute(
+                "SELECT 1 FROM sheet_fields WHERE sheet_id = ? AND key = ?",
+                (sheet["id"], key),
+            ).fetchone()
+            if exists:
+                continue
+            conn.execute(
+                "INSERT INTO sheet_fields "
+                "(id, sheet_id, key, label, json_type, ordinal, enabled, created_at) "
+                "VALUES (?, ?, ?, ?, 'string', ?, ?, ?)",
+                (
+                    new_id(), sheet["id"], key, key,
+                    int(field.get("order", index) or 0),
+                    1 if field.get("enabled", True) else 0,
+                    utcnow(),
+                ),
+            )
+            report["fields_created"] += 1
+
+
+def _backfill_origins(conn, report):
+    for origin in conn.execute("SELECT id, user_id, sheet_name FROM trans_origins"):
+        sheet_id = origin["sheet_name"] and conn.execute(
+            "SELECT id FROM data_sheets WHERE user_id = ? AND name = ?",
+            (origin["user_id"], origin["sheet_name"]),
+        ).fetchone()
+        if not sheet_id:
+            name = origin["sheet_name"] or "Imported data sheet"
+            sheet_id = conn.execute(
+                "SELECT id FROM data_sheets WHERE user_id = ? AND name = ?",
+                (origin["user_id"], name),
+            ).fetchone()
+            if not sheet_id:
+                sheet_id_value = new_id()
+                conn.execute(
+                    "INSERT INTO data_sheets (id, user_id, name, description, origin_id, fields_json, created_at, updated_at) "
+                    "VALUES (?, ?, ?, '', NULL, '[]', ?, ?)",
+                    (sheet_id_value, origin["user_id"], name, utcnow(), utcnow()),
+                )
+                report["sheets_created"] += 1
+            else:
+                sheet_id_value = sheet_id["id"]
+        else:
+            sheet_id_value = sheet_id["id"]
+        conn.execute(
+            "UPDATE trans_origins SET sheet_id = ?, result_path = COALESCE(result_path, ''), "
+            "state = COALESCE(NULLIF(state, ''), 'DRAFT') WHERE id = ?",
+            (sheet_id_value, origin["id"]),
+        )
+
+
+def _backfill_rows(conn, report):
+    rows = list(conn.execute("SELECT id, params_used FROM data_rows"))
+    for row in rows:
+        params_json, params_key = canonical_params(row["params_used"])
+        conn.execute(
+            "UPDATE data_rows SET params_json = ?, params_key = ? WHERE id = ?",
+            (params_json, params_key, row["id"]),
+        )
+    report["rows_backfilled"] = len(rows)
+
+
+def _backfill_trans_apis(conn, report):
+    field_ids = {}
+    for row in conn.execute("SELECT sheet_id, key, id FROM sheet_fields"):
+        field_ids[(row["sheet_id"], row["key"])] = row["id"]
+
+    def resolve_field(sheet_id, field_name):
+        sid = str(sheet_id or "")
+        name = str(field_name or "")
+        field_id = field_ids.get((sid, name))
+        if not field_id:
+            report["unresolved_field_names"].append({"sheet_id": sid, "field": name})
+        return field_id
+
+    def resolve_pairs(raw):
+        out = []
+        for item in _load_json(raw, []):
+            if not isinstance(item, dict):
+                continue
+            copied = dict(item)
+            field_name = copied.pop("field", "")
+            field_id = resolve_field(copied.get("sheet_id"), field_name)
+            if field_id:
+                copied["field_id"] = field_id
+            out.append(copied)
+        return out
+
+    for api in conn.execute("SELECT * FROM trans_apis"):
+        sheet_ids = [str(sid) for sid in _load_json(api["sheet_ids_json"], [])]
+        joins = []
+        for item in _load_json(api["joins_json"], []):
+            if not isinstance(item, dict):
+                continue
+            copied = dict(item)
+            left_id = resolve_field(copied.get("left_sheet"), copied.get("left_field"))
+            right_id = resolve_field(copied.get("right_sheet"), copied.get("right_field"))
+            if left_id:
+                copied["left_field_id"] = left_id
+            if right_id:
+                copied["right_field_id"] = right_id
+            joins.append(copied)
+        projections = []
+        for sheet_id, fields in _load_json(api["sheet_fields_json"], {}).items():
+            if not isinstance(fields, dict):
+                continue
+            for field_name, enabled in fields.items():
+                field_id = resolve_field(sheet_id, field_name)
+                if field_id:
+                    projections.append({
+                        "sheet_id": str(sheet_id),
+                        "field_id": field_id,
+                        "enabled": bool(enabled),
+                    })
+        query_config = {
+            "sheets": sheet_ids,
+            "joins": joins,
+            "projections": projections,
+            "filters": resolve_pairs(api["param_mapping_json"]) + resolve_pairs(api["body_mapping_json"]),
+        }
+        conn.execute(
+            "UPDATE trans_apis SET query_config_v2 = ? WHERE id = ?",
+            (json.dumps(query_config, ensure_ascii=False), api["id"]),
+        )
+
+
+def apply_trans_rewrite_migration(conn):
+    """应用 001_trans_rewrite。可重复执行，已应用的版本只重跑数据回填。"""
+    report = {
+        "version": TRANS_REWRITE_VERSION,
+        "fields_created": 0,
+        "sheets_created": 0,
+        "rows_backfilled": 0,
+        "unresolved_field_names": [],
+    }
+    _ensure_column(conn, "data_sheets", "description", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "data_sheets", "updated_at", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "trans_origins", "sheet_id", "TEXT")
+    _ensure_column(conn, "trans_origins", "result_path", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "trans_origins", "state", "TEXT NOT NULL DEFAULT 'DRAFT'")
+    _ensure_column(conn, "data_rows", "params_key", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "data_rows", "params_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_column(conn, "trans_apis", "query_config_v2", "TEXT NOT NULL DEFAULT ''")
+
+    migration_path = MIGRATIONS_DIR / "001_trans_rewrite.sql"
+    conn.executescript(migration_path.read_text(encoding="utf-8"))
+
+    _backfill_sheet_fields(conn, report)
+    _backfill_origins(conn, report)
+    _backfill_rows(conn, report)
+    _backfill_trans_apis(conn, report)
+
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (TRANS_REWRITE_VERSION,)
+    ).fetchone()
+    if not applied:
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (TRANS_REWRITE_VERSION, utcnow()),
+        )
+        report["applied"] = True
+    else:
+        report["applied"] = False
+    conn.commit()
+    return report
+
+
+def migrate_database(path=None, dry_run=False):
+    """独立迁移入口。dry_run 时只修改临时副本。"""
+    import shutil
+    import tempfile
+
+    source = Path(path) if path else DB_PATH
+    temp_dir = tempfile.TemporaryDirectory()
+    target = Path(temp_dir.name) / "migrate.db"
+    if source.exists():
+        source_conn = _connect_path(source)
+        target_conn = sqlite3.connect(str(target))
+        try:
+            source_conn.backup(target_conn)
+        finally:
+            source_conn.close()
+            target_conn.close()
+    else:
+        target_conn = sqlite3.connect(str(target))
+        try:
+            target_conn.executescript(SCHEMA)
+            target_conn.commit()
+        finally:
+            target_conn.close()
+
+    conn = _connect_path(target)
+    try:
+        report = apply_trans_rewrite_migration(conn)
+    finally:
+        conn.close()
+    report["dry_run"] = dry_run
+    report["source"] = str(source)
+    if dry_run:
+        shutil.rmtree(temp_dir.name, ignore_errors=True)
+    else:
+        source_conn = _connect_path(source)
+        target_conn = _connect_path(target)
+        try:
+            target_conn.backup(source_conn)
+        finally:
+            source_conn.close()
+            target_conn.close()
+        temp_dir.cleanup()
+    return report
+
+
 def init_db(seed_admin=True):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = connect()
     try:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        apply_trans_rewrite_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()
