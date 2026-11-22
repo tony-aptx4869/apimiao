@@ -158,14 +158,8 @@ def trans_origin_fetch_preview():
     return ok(**result)
 
 
-@bp.route("/api/trans-origins/precheck", methods=["POST"])
-def trans_origin_precheck():
-    """Save 前的完整预检：跑一轮采集，全部成功则保存配置+数据（先验证后落地）。
-
-    新建（无 id）：预检成功后落库配置和数据，保证创建完立刻有数据可用。
-    编辑（有 id）：预检成功后更新配置；数据由本轮采集写入（覆盖式追加新批次）。
-    force_save=1：应急通道，预检失败也只保存配置、不写数据、标记未验证。
-    """
+def _run_origin_precheck(route_origin_id=""):
+    """Save 前的完整预检。编辑身份由路由 ID 持有，不信任请求体 ID。"""
     gate = require_login()
     if gate:
         return gate
@@ -173,13 +167,36 @@ def trans_origin_precheck():
     force = bool(data.get("force_save"))
     cfg = _payload_config(data)
     err = _validate(cfg)
-    if err and not force:
+    if err:
         return error(err, 400)
     cfg["fields"] = _sheet_field_config(session["uid"], cfg["sheet_id"])
 
-    origin_id = data.get("id") or ""
-    is_new = not origin_id
+    body_id = data.get("id") or ""
+    if route_origin_id:
+        origin_id = route_origin_id
+        is_new = False
+    elif body_id:
+        return error("Use the edit precheck endpoint", 400)
+    else:
+        origin_id = ""
+        is_new = True
+
     if is_new:
+        duplicate = one(
+            "SELECT id FROM trans_origins WHERE user_id = ? "
+            "AND original_url = ? AND original_method = ? AND original_key = ? "
+            "AND params_json = ? AND headers_json = ? AND cookies_json = ? "
+            "AND body_mode = ? AND body = ? AND encoding = ? "
+            "AND timeout = ? AND retry = ? AND request_interval = ? "
+            "AND frequency = ? AND days_json = ? AND times_json = ? AND sheet_id = ?",
+            (session["uid"], cfg["original_url"], cfg["original_method"], cfg["original_key"],
+             cfg["params_json"], cfg["headers_json"], cfg["cookies_json"],
+             cfg["body_mode"], cfg["body"], cfg["encoding"], cfg["timeout"], cfg["retry"],
+             cfg["request_interval"], cfg["frequency"], cfg["days_json"], cfg["times_json"],
+             cfg["sheet_id"]),
+        )
+        if duplicate:
+            return error("Equivalent TRANS Origin already exists", 400)
         origin_id = new_id()
     elif not one("SELECT 1 FROM trans_origins WHERE id = ? AND user_id = ?",
                  (origin_id, session["uid"])):
@@ -209,6 +226,16 @@ def trans_origin_precheck():
     return ok(saved=True, verified=verified, id=origin_id, success=collected["success"],
               total=collected["total"], failed=collected["failed"],
               errors=collected["errors"], warnings=collected["warnings"], **batch_info)
+
+
+@bp.route("/api/trans-origins/precheck", methods=["POST"])
+def trans_origin_precheck():
+    return _run_origin_precheck()
+
+
+@bp.route("/api/trans-origins/<origin_id>/precheck", methods=["POST"])
+def trans_origin_precheck_edit(origin_id):
+    return _run_origin_precheck(origin_id)
 
 
 def _save_origin(origin_id, user_id, cfg, verified, is_new):

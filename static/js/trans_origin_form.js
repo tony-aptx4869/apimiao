@@ -185,7 +185,6 @@ updateBodyMode();
 // ---------- 收集配置 ----------
 function collectPayload(){
   return {
-    id: ORIGIN_ID||undefined,
     note:$('note')?.value||'',
     original_url:$('original_url').value.trim(),
     original_method:$('original_method').value,
@@ -232,13 +231,15 @@ function renderFields(data,drift){
 }
 
 // ---------- Save：预检弹窗 ----------
+function precheckUrl(){ return ORIGIN_ID?`/api/trans-origins/${ORIGIN_ID}/precheck`:'/api/trans-origins/precheck'; }
 $('saveBtn').onclick=async()=>{
+  const btn=$('saveBtn'); if(btn.disabled) return; btn.disabled=true;
   const payload=collectPayload();
   const modal=$('precheckModal'); modal.classList.add('show');
   const prog=$('precheckProgress'), log=$('precheckLog');
   prog.textContent='正在预检...'; log.innerHTML=''; $('forceSaveBtn').style.display='none';
   try{
-    const r=await apiPost('/api/trans-origins/precheck', payload);
+    const r=await apiPost(precheckUrl(), payload);
     prog.textContent=`${r.total||0} 项，成功 ${(r.total||0)-(r.failed||0)}，失败 ${r.failed||0}`;
     if(r.errors&&r.errors.length){
       log.innerHTML=r.errors.map(e=>`<div class="log-err">${esc(JSON.stringify(e.params))} → ${esc(e.error)}</div>`).join('');
@@ -253,10 +254,14 @@ $('saveBtn').onclick=async()=>{
       $('forceSaveBtn').style.display='inline-block';
     }
   }catch(e){ prog.textContent='预检失败'; log.innerHTML=`<div class="log-err">${esc(e.message||e)}</div>`; }
+  finally { btn.disabled=false; }
 };
 $('precheckClose').onclick=()=>$('precheckModal').classList.remove('show');
 $('forceSaveBtn').onclick=async()=>{
+  const btn=$('forceSaveBtn'); if(btn.disabled) return; btn.disabled=true;
   const p=collectPayload(); p.force_save=true;
-  const r=await apiPost('/api/trans-origins/precheck', p);
-  if(r.saved) location.href='/panel/trans-origin'; else showError(r.error||'保存失败');
+  try{
+    const r=await apiPost(precheckUrl(), p);
+    if(r.saved) location.href='/panel/trans-origin'; else showError(r.error||'保存失败');
+  } finally { btn.disabled=false; }
 };

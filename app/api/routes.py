@@ -190,6 +190,7 @@ def api_update(api_id):
         (payload["endpoint"], payload["method"], payload["auth"], "UTF-8",
          payload["note"], json.dumps(payload["config"], ensure_ascii=False), api_id),
     )
+    execute("DELETE FROM api_cache WHERE api_id = ?", (api_id,))
     return ok()
 
 

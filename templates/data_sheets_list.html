@@ -17,6 +17,7 @@
 <script>
 (async function(){
   const err=document.getElementById('sheetError');
+  const BOUND_SHEETS=new Set({{ bound_sheet_ids|tojson }});
   showError=(msg)=>{err.textContent=msg;err.style.display='block';};
   const r=await apiFetch('/api/data-sheets');
   if(!r.ok){showError(r.error||'Failed to load data sheets');return;}
@@ -24,8 +25,9 @@
     <td><code>${esc(s.name)}</code></td><td>${esc(s.description||'')}</td><td>${(s.fields||[]).length}</td>
     <td class="date-cell" data-utc="${esc(s.created_at||'')}"></td>
     <td class="row-actions"><a class="btn btn-xs btn-outline" href="/panel/data-sheets/${esc(s.id)}/edit">${esc('{{ t("common.edit") }}')}</a>
-      <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}">${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
+      <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}"${BOUND_SHEETS.has(s.id)?` disabled title="${esc('{{ t("sheet.delete_bound") }}')}"`:''}>${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
   document.querySelectorAll('.sheet-del').forEach(b=>b.onclick=async()=>{
+    if(BOUND_SHEETS.has(b.dataset.id)){showError('{{ t("sheet.delete_bound") }}');return;}
     if(!confirm('{{ t("sheet.delete_confirm") }}'))return;
     const res=await apiFetch('/api/data-sheets/'+b.dataset.id,'DELETE');
     if(res.ok)location.reload();else showError(res.error||'Delete failed');

@@ -1,5 +1,6 @@
 from flask import render_template, request, session
 
+from ..db import all_rows
 from ..utils import error, ok, require_login
 from . import bp
 from . import service
@@ -20,7 +21,13 @@ def data_sheets_list():
     gate = require_login()
     if gate:
         return gate
-    return render_template("data_sheets_list.html")
+    bound = all_rows(
+        "SELECT DISTINCT sheet_id FROM trans_origins WHERE user_id = ? AND sheet_id != ''",
+        (session["uid"],),
+    )
+    return render_template(
+        "data_sheets_list.html", bound_sheet_ids=[row["sheet_id"] for row in bound]
+    )
 
 
 @bp.route("/panel/data-sheets/new")
@@ -78,7 +85,11 @@ def api_data_sheet(sheet_id):
         sheet = service.get_sheet(session["uid"], sheet_id)
         return ok(sheet=sheet) if sheet else error("Data sheet not found", 404)
     if request.method == "DELETE":
-        return ok() if service.delete_sheet(session["uid"], sheet_id) else error("Data sheet not found", 404)
+        try:
+            deleted = service.delete_sheet(session["uid"], sheet_id)
+        except ValueError as exc:
+            return error(str(exc), 409)
+        return ok() if deleted else error("Data sheet not found", 404)
     try:
         sheet = service.update_sheet(session["uid"], sheet_id, request.get_json(silent=True) or {})
     except ValueError as exc:

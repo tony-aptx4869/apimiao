@@ -140,10 +140,11 @@ def update_sheet(user_id, sheet_id, payload):
     name = str(payload.get("name") or current["name"]).strip()
     if not name:
         raise ValueError("Sheet name is required")
+    description = str(payload.get("description", current["description"])).strip()
     db = get_db()
     db.execute(
         "UPDATE data_sheets SET name = ?, description = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-        (name, str(payload.get("description") or "").strip(), utcnow(), sheet_id, user_id),
+        (name, description, utcnow(), sheet_id, user_id),
     )
     if "fields" in payload:
         _write_fields(sheet_id, _normalize_fields(payload.get("fields")))
@@ -154,6 +155,28 @@ def update_sheet(user_id, sheet_id, payload):
 
 def delete_sheet(user_id, sheet_id):
     db = get_db()
+
+    def uses_sheet(value):
+        try:
+            parsed = json.loads(value or "null")
+        except (TypeError, ValueError):
+            return False
+        if isinstance(parsed, list):
+            return sheet_id in parsed
+        if isinstance(parsed, dict):
+            return sheet_id in (parsed.get("sheets") or [])
+        return False
+
+    for row in db.execute(
+        "SELECT sheet_ids_json, query_config_v2 FROM trans_apis WHERE user_id = ?", (user_id,)
+    ):
+        if uses_sheet(row["sheet_ids_json"]) or uses_sheet(row["query_config_v2"]):
+            raise ValueError("Data sheet is referenced by a TRANS User API")
+    if db.execute(
+        "SELECT 1 FROM trans_origins WHERE user_id = ? AND sheet_id = ?", (user_id, sheet_id)
+    ).fetchone():
+        raise ValueError("Data sheet is referenced by a TRANS Origin API")
+
     cur = db.execute("DELETE FROM data_sheets WHERE id = ? AND user_id = ?", (sheet_id, user_id))
     db.commit()
     return cur.rowcount == 1
@@ -161,18 +184,35 @@ def delete_sheet(user_id, sheet_id):
 
 def _write_fields(sheet_id, fields):
     db = get_db()
-    db.execute("DELETE FROM sheet_fields WHERE sheet_id = ?", (sheet_id,))
+    existing = {
+        row["key"]: row["id"]
+        for row in db.execute("SELECT id, key FROM sheet_fields WHERE sheet_id = ?", (sheet_id,))
+    }
+    keep_ids = set()
     seen = set()
     for item in fields:
         if item["key"] in seen:
             continue
         seen.add(item["key"])
-        db.execute(
-            "INSERT INTO sheet_fields "
-            "(id, sheet_id, key, label, json_type, ordinal, enabled, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                new_id(), sheet_id, item["key"], item["label"], item["json_type"],
-                item["order"], 1 if item["enabled"] else 0, utcnow(),
-            ),
-        )
+        field_id = existing.get(item["key"])
+        if field_id:
+            keep_ids.add(field_id)
+            db.execute(
+                "UPDATE sheet_fields SET label = ?, json_type = ?, ordinal = ?, enabled = ? "
+                "WHERE id = ? AND sheet_id = ?",
+                (item["label"], item["json_type"], item["order"],
+                 1 if item["enabled"] else 0, field_id, sheet_id),
+            )
+        else:
+            field_id = new_id()
+            keep_ids.add(field_id)
+            db.execute(
+                "INSERT INTO sheet_fields "
+                "(id, sheet_id, key, label, json_type, ordinal, enabled, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (field_id, sheet_id, item["key"], item["label"], item["json_type"],
+                 item["order"], 1 if item["enabled"] else 0, utcnow()),
+            )
+    for field_id, existing_id in existing.items():
+        if existing_id not in keep_ids:
+            db.execute("DELETE FROM sheet_fields WHERE id = ?", (existing_id,))

@@ -4,6 +4,7 @@
 所有 db helper 依赖 flask.g，需在 app context 内调用。
 """
 import ast
+import hashlib
 import itertools
 import json
 import time
@@ -333,10 +334,23 @@ def collect_batch(origin, cfg_override=None):
             "payloads": payloads, "field_names": field_names}
 
 
+def _batch_key(origin, cfg, triggered_by):
+    keys = ("original_url", "original_method", "original_key", "params_json",
+            "headers_json", "cookies_json", "body_mode", "body", "encoding",
+            "timeout", "retry", "request_interval", "frequency", "days_json",
+            "times_json", "sheet_id")
+    raw = {key: cfg.get(key, "") for key in keys}
+    raw["fields"] = cfg.get("fields") or []
+    digest = hashlib.sha256(
+        json.dumps(raw, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"{triggered_by}:{origin.get('id', '')}:{digest}:{utcnow()[:16]}"
+
+
 def commit_batch(origin, cfg, collected, triggered_by="PRECHECK", batch_key=""):
     """Commit one collection batch atomically into the chosen Data Sheet."""
     batch_id = new_id()
-    key = batch_key or batch_id
+    key = batch_key or _batch_key(origin, cfg, triggered_by)
     sheet_id = origin["sheet_id"]
     db = get_db()
     existing = one("SELECT id FROM fetch_batches WHERE batch_key = ?", (key,))
