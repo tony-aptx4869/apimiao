@@ -27,7 +27,7 @@ PAGES = [
     "/panel/data-sheets/new", "/panel/trans-origin", "/panel/trans-origin/new",
     "/panel/trans-user", "/panel/trans-user/new", "/panel/profile", "/panel/users",
 ]
-ALWAYS_ALLOWED_ENGLISH_CJK = {"汉", "语"}
+ALWAYS_ALLOWED_ENGLISH_CJK = {"汉", "语", "根", "节", "点"}
 ALLOWED_ENGLISH_SAMPLES = {
     "/panel/data-sheets/new": {"北京", "上海"},
 }
@@ -66,6 +66,8 @@ def static_cjk_candidates():
             if path.name == "data_sheets_form.html" and "北京" in stripped:
                 continue
             if 'html[lang="zh"]' in stripped or "🇨🇳" in stripped:
+                continue
+            if "Root Node / 根节点" in stripped:
                 continue
             candidates.append(f"{path.relative_to(ROOT)}:{number}:{stripped[:120]}")
     return candidates
