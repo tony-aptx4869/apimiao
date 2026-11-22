@@ -121,7 +121,7 @@ def set_lang(lang):
     if urlsplit(target).netloc and urlsplit(target).netloc != request.host:
         target = url_for("auth.home")
     resp = redirect(target)
-    resp.set_cookie("apimiao_lang", lang, max_age=60 * 60 * 24 * 365, samesite="Lax")
+    resp.set_cookie("apimiao_lang", lang, max_age=60 * 60 * 24 * 365, path="/", samesite="Lax")
     return resp
 
 

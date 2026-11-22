@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const INIT = window.ORIGIN_INIT || {};
 const ORIGIN_ID = window.ORIGIN_ID || null;
+const T = (zh, en) => window.LANG_ZH === true ? zh : en;
 let fieldConfig = INIT.fields || [];
 let fetchFields = [];
 let sheets = [];
@@ -52,7 +53,7 @@ function parseList(raw){
       if(v) out.push(v.replace(/\\(['"\\])/g,'$1'));
     }
     if(matched && out.length) return out;
-    throw new Error('不是有效的 Python list，例如 [\'北京\', \'天津\']');
+    throw new Error(T("不是有效的 Python list，例如 ['北京', '天津']", "Not a valid Python list, e.g. ['Beijing', 'Tianjin']"));
   }
   return s.split(';').map(x=>x.trim()).filter(Boolean);
 }
@@ -61,11 +62,11 @@ function parseList(raw){
 function kvRow(key='', value='', isList=false, items=[]){
   const div=document.createElement('div');
   div.className='kv-row';
-  const tag=isList?'<span class="tag tag-list">列表</span>':'';
+  const tag=isList?`<span class="tag tag-list">${T('列表','List')}</span>`:'';
   div.innerHTML=`<input class="kv-k" placeholder="key" value="${esc(key)}">`+
     `<input class="kv-v" placeholder="value" value="${esc(value)}" ${isList?'style="display:none"':''}>`+
     tag+
-    `<button type="button" class="btn btn-xs btn-outline kv-list" title="编辑列表"><i class="bi bi-list-ul"></i></button>`+
+    `<button type="button" class="btn btn-xs btn-outline kv-list" title="${T('编辑列表','Edit list')}"><i class="bi bi-list-ul"></i></button>`+
     `<button type="button" class="btn btn-xs btn-danger kv-del"><i class="bi bi-x"></i></button>`;
   div._items=items.slice();
   div._isList=isList;
@@ -118,13 +119,13 @@ $('listApply')?.addEventListener('click',()=>{
   items=[...$('listItems').children].map(r=>r.querySelector('.li-v').value.trim()).filter(Boolean);
   if(!items.length && raw){
     try{ items=parseList(raw); }
-    catch(e){ showError('列表解析失败：'+e.message); return; }
+    catch(e){ showError(T('列表解析失败：','Failed to parse list: ')+e.message); return; }
   }
-  if(!items.length){ showError('列表不能为空'); return; }
+  if(!items.length){ showError(T('列表不能为空','List cannot be empty')); return; }
   editingRow._items=items; editingRow._isList=true;
   const inp=editingRow.querySelector('.kv-v'); inp.style.display='none';
   if(!editingRow.querySelector('.tag-list')){
-    const tag=document.createElement('span'); tag.className='tag tag-list'; tag.textContent='列表';
+    const tag=document.createElement('span'); tag.className='tag tag-list'; tag.textContent=T('列表','List');
     inp.after(tag);
   }
   $('listModal').classList.remove('show');
@@ -208,7 +209,7 @@ $('fetchDataBtn').onclick=async()=>{
     const r=await apiPost('/api/trans-origins/fetch-preview', collectPayload());
     const out=$('fetchResult');
     if(!r.ok){ out.innerHTML=`<div class="alert alert-error">${esc(r.error)}</div>`; return; }
-    if(!r.success){ out.innerHTML=`<div class="alert alert-warning">HTTP ${r.status}：${esc(r.biz_error||'业务错误')}</div>`; }
+    if(!r.success){ out.innerHTML=`<div class="alert alert-warning">HTTP ${r.status}：${esc(r.biz_error||T('业务错误','Business error'))}</div>`; }
     const drift=r.drift||[];
     if(drift.length){
       out.insertAdjacentHTML('afterbegin',`<div class="alert alert-warning">Upstream JSON drift: ${esc(drift.map(d=>d.path).join(', '))}</div>`);
@@ -228,7 +229,7 @@ function renderFields(data,drift){
     return `<div class="field-pill" data-field="${esc(f.name)}">
       <div class="field-pill-text"><b>${esc(f.name)}</b><span>${esc(state)}${val===undefined?'':' · '+String(val).slice(0,40)}</span></div>
     </div>`;
-  }).join(''):'<div class="hint">Choose a Data Sheet with fields.</div>';
+  }).join(''):`<div class="hint">${T('选择一张包含字段的数据表。','Choose a Data Sheet with fields.')}</div>`;
 }
 
 // ---------- Save：任务化预检弹窗 ----------
@@ -241,12 +242,12 @@ function hideDecisionButtons(){
 }
 function renderPrecheckTask(task){
   const total=task.total||0, done=task.done||0, failed=task.failed||0;
-  $('precheckProgress').textContent=`${done} / ${total}，失败 ${failed}，第 ${task.round||1} 轮`;
+  $('precheckProgress').textContent=T(`${done} / ${total}，失败 ${failed}，第 ${task.round||1} 轮`, `${done} / ${total}, ${failed} failed, round ${task.round||1}`);
   const detail=[];
-  if(task.current) detail.push('当前请求 '+task.current);
+  if(task.current) detail.push(T('当前请求 ','Current request ')+task.current);
   if(task.next_retry_at){
     const left=Math.max(0,Math.ceil((new Date(task.next_retry_at).getTime()-Date.now())/1000));
-    detail.push('下次重试 '+left+'s');
+    detail.push(T('下次重试 ','Retry in ')+left+'s');
   }
   $('precheckDetail').textContent=detail.join(' · ');
   const log=$('precheckLog');
@@ -263,30 +264,30 @@ function renderPrecheckTask(task){
     setTimeout(()=>location.href='/panel/trans-origin',600);
   } else if(task.status==='CANCELLED'){
     stopPrecheckPolling();
-    $('precheckProgress').textContent='预检已取消，未保存配置，未写入数据';
+    $('precheckProgress').textContent=T('预检已取消，未保存配置，未写入数据','Precheck cancelled. Configuration was not saved and no data was written.');
   }
 }
 async function pollPrecheckTask(){
   if(!precheckTaskId) return;
   const r=await apiFetch('/api/trans-origins/precheck-tasks/'+precheckTaskId);
-  if(!r.ok){ showError(r.error||'预检状态读取失败'); stopPrecheckPolling(); return; }
+  if(!r.ok){ showError(r.error||T('预检状态读取失败','Failed to read precheck status')); stopPrecheckPolling(); return; }
   renderPrecheckTask(r.task||{});
 }
 async function decidePrecheck(decision){
   if(!precheckTaskId) return;
   const r=await apiPost('/api/trans-origins/precheck-tasks/'+precheckTaskId+'/decision',{decision});
-  if(!r.ok){ showError(r.error||'预检决策失败'); return; }
+  if(!r.ok){ showError(r.error||T('预检决策失败','Precheck decision failed')); return; }
   await pollPrecheckTask();
 }
 $('saveBtn').onclick=async()=>{
   const btn=$('saveBtn'); if(btn.disabled) return; btn.disabled=true;
   stopPrecheckPolling();
   const modal=$('precheckModal'); modal.classList.add('show');
-  $('precheckProgress').textContent='正在创建预检任务...'; $('precheckDetail').textContent=''; $('precheckLog').innerHTML='';
+  $('precheckProgress').textContent=T('正在创建预检任务...','Creating precheck task...'); $('precheckDetail').textContent=''; $('precheckLog').innerHTML='';
   hideDecisionButtons();
   try{
     const r=await apiPost(precheckTaskUrl(), collectPayload());
-    if(!r.ok){ showError(r.error||'预检启动失败'); btn.disabled=false; return; }
+    if(!r.ok){ showError(r.error||T('预检启动失败','Failed to start precheck')); btn.disabled=false; return; }
     precheckTaskId=r.task_id;
     await pollPrecheckTask();
     precheckTimer=setInterval(pollPrecheckTask,700);

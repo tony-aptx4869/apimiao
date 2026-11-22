@@ -2,7 +2,7 @@
 {% block title %}{{ t('panel.profile') }} · APIMiao{% endblock %}
 {% block panel %}
 <h1 class="page-title">{{ t('panel.profile') }}</h1>
-{% if force %}<div class="alert alert-warning">首次登录请先修改密码，之后才能使用其他功能。</div>{% endif %}
+{% if force %}<div class="alert alert-warning">{{ '首次登录请先修改密码，之后才能使用其他功能。' if LANG() == 'zh' else 'Change your password on first login before using other features.' }}</div>{% endif %}
 <div class="form-section">
   <h2>Account</h2>
   <div class="form-grid">

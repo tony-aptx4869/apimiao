@@ -307,17 +307,21 @@ function insertOutputNode(node, targetId, mode){
 
 function renderOutputNode(node){
   const isContainer = node.type!=='field';
-  const typeLabel = node.type==='object' ? '对象' : node.type==='array' ? '数组' : '字段';
+  const labels = ZH
+    ? {object:'对象', array:'数组', field:'字段', source:'来源', unbound:'未绑定', del:'删除节点', name:'显示名称', key:'输出 key'}
+    : {object:'Object', array:'Array', field:'Field', source:'Source', unbound:'Unbound', del:'Delete node', name:'Display name', key:'Output key'};
+  const typeLabel = labels[node.type] || labels.field;
+  const sourceKey = findFieldKeyById(node.field_id)||node.field_id||labels.unbound;
   const source = node.type==='field'
-    ? `<span class="output-node-source">来源 ${esc(findFieldKeyById(node.field_id)||node.field_id||'未绑定')}</span>` : '';
+    ? `<span class="output-node-source">${labels.source} ${esc(sourceKey)}</span>` : '';
   const children = isContainer
     ? `<div class="output-node-children">${(node.children||[]).map(renderOutputNode).join('')}</div>` : '';
-  const delBtn = node.id===outputTree.id ? '' : '<button type="button" class="btn btn-xs btn-danger output-node-del" title="删除节点">&times;</button>';
+  const delBtn = node.id===outputTree.id ? '' : `<button type="button" class="btn btn-xs btn-danger output-node-del" title="${labels.del}">&times;</button>`;
   return `<div class="output-node" data-id="${esc(node.id)}" draggable="true">
     <div class="output-node-row">
       <span class="output-node-type type-${node.type}">${typeLabel}</span>
-      <input class="output-node-name" value="${esc(node.name)}" placeholder="显示名称">
-      <input class="output-node-key" value="${esc(node.key)}" placeholder="输出 key">
+      <input class="output-node-name" value="${esc(node.name)}" placeholder="${labels.name}" draggable="false">
+      <input class="output-node-key" value="${esc(node.key)}" placeholder="${labels.key}" draggable="false">
       ${source}
       ${delBtn}
     </div>
@@ -350,6 +354,11 @@ function bindOutputTreeEvents(box){
   box.querySelectorAll('.output-node').forEach(el=>{
     const id=el.dataset.id;
     el.ondragstart=e=>{
+      if(e.target && e.target.closest && e.target.closest('input')){
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       e.stopPropagation();
       e.dataTransfer.setData(OUTPUT_NODE_MIME,id);
       e.dataTransfer.setData('text/plain','');

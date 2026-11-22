@@ -91,9 +91,9 @@
 <!-- 列表编辑弹窗 -->
 <div id="listModal" class="modal">
   <div class="modal-box">
-    <h3>编辑列表</h3>
-    <p class="hint">填写 Python list（如 ['北京','天津']）或分号分隔文本；也可逐项添加。</p>
-    <textarea id="listRaw" rows="3" placeholder="['北京', '天津', '上海']"></textarea>
+    <h3>{{ '编辑列表' if LANG() == 'zh' else 'Edit List' }}</h3>
+    <p class="hint">{{ "填写 Python list（如 ['北京','天津']）或分号分隔文本；也可逐项添加。" if LANG() == 'zh' else "Enter a Python list (e.g. ['Beijing','Tianjin']) or semicolon-separated text. You can also add items one by one." }}</p>
+    <textarea id="listRaw" rows="3" placeholder="item1; item2"></textarea>
     <div id="listItems" class="list-items"></div>
     <button type="button" class="btn btn-xs btn-outline" id="addListItem"><i class="bi bi-plus"></i> {{ t('common.add') }}</button>
     <div class="modal-actions">

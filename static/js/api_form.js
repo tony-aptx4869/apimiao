@@ -1,6 +1,9 @@
 // PROXY API 创建/编辑表单：动态键值、Body 模式
 const $ = id => document.getElementById(id);
-const I18N = { noBody: { zh: '此请求没有 body。', en: 'No body for this request.' } };
+const I18N = {
+  noBody: { zh: '此请求没有 body。', en: 'No body for this request.' },
+  binaryBody: { zh: '二进制 body 由调用方请求内容转发。', en: 'Binary body is forwarded from the caller request.' }
+};
 const tr = key => (I18N[key] && I18N[key][LANG]) || (I18N[key] && I18N[key].en) || key;
 
 // 复制 {{o-api-key}} 引用
@@ -41,7 +44,7 @@ function updateBodyMode() {
   const hint = $('bodyHint');
   const editor = $('codeEditor');
   if (mode === 'none') { editor.style.display = 'none'; if (hint) hint.textContent = tr('noBody'); }
-  else if (mode === 'binary') { editor.style.display = 'none'; if (hint) hint.textContent = '二进制 body 由调用方请求内容转发。'; }
+  else if (mode === 'binary') { editor.style.display = 'none'; if (hint) hint.textContent = tr('binaryBody'); }
   else { editor.style.display = 'flex'; if (hint) hint.textContent = ''; updateGutter(); updateActiveLine(); }
   const fmt = $('formatJsonBtn');
   if (fmt) fmt.style.display = mode === 'json' ? '' : 'none';

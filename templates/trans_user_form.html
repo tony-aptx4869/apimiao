@@ -39,18 +39,19 @@
 <div class="mapping-grid">
   <div class="mapping-target">
     <h3>Params</h3>
+    <p class="hint">{{ t('trans.drag_fields_hint') }}</p>
     <div id="targetParams" class="drop-zone"></div>
   </div>
 </div>
 </div>
 
 <div class="panel-card">
-<h2>返回数据树</h2>
-<p class="hint">把上方数据表的字段拖入对象/数组节点，构建 TRANS 返回结构。拖动节点可重新排序，也可移入对象或数组容器。</p>
+<h2>{{ '返回数据树' if LANG() == 'zh' else 'Return Data Tree' }}</h2>
+<p class="hint">{{ '把上方数据表的字段拖入对象/数组节点，构建 TRANS 返回结构。拖动节点可重新排序，也可移入对象或数组容器。' if LANG() == 'zh' else 'Drag fields from the data sheets above into object or array nodes to shape the TRANS response. Drag nodes to reorder or move them into containers.' }}</p>
 <div class="output-tree-toolbar">
-  <button type="button" class="btn btn-outline" id="outputAddObject">添加对象</button>
-  <button type="button" class="btn btn-outline" id="outputAddArray">添加数组</button>
-  <button type="button" class="btn btn-outline" id="outputReset">清空/重置为默认根节点</button>
+  <button type="button" class="btn btn-outline" id="outputAddObject">{{ '添加对象' if LANG() == 'zh' else 'Add Object' }}</button>
+  <button type="button" class="btn btn-outline" id="outputAddArray">{{ '添加数组' if LANG() == 'zh' else 'Add Array' }}</button>
+  <button type="button" class="btn btn-outline" id="outputReset">{{ '清空/重置为默认根节点' if LANG() == 'zh' else 'Reset to Default Root' }}</button>
 </div>
 <div id="outputTree" class="output-tree"></div>
 </div>
@@ -72,6 +73,7 @@
 <div id="sheetsModal" class="modal">
   <div class="modal-box modal-wide">
     <h3>{{ t('trans.choose_sheets') }}</h3>
+    <p class="hint">{{ t('trans.choose_sheets_hint') }}</p>
     <div id="sheetsList" class="sheets-list"></div>
     <div class="modal-actions">
       <button type="button" class="btn btn-primary" id="sheetsApply">{{ t('common.confirm') }}</button>

@@ -302,17 +302,20 @@ label.full input { width: 100%; }
 /* TRANS User data view: readable field cards and usable drop targets */
 .sheet-views { min-height: 240px; align-content: flex-start; }
 .sheet-views:empty::before { content: "Choose Data Sheets to view fields"; color: var(--muted); display: block; padding: 16px 0; }
+html[lang="zh"] .sheet-views:empty::before { content: "选择数据表以查看字段"; }
 .schema-card { min-height: 200px; color: var(--text); }
 .schema-field { min-height: 30px; line-height: 30px; color: var(--text); }
 .mapping-target { min-height: 180px; background: var(--surface); }
 .drop-zone { min-height: 160px; color: var(--text); background: #fafbfc; }
 .drop-zone:empty::before { content: "Drag fields here"; color: var(--muted); display: block; padding: 12px; }
+html[lang="zh"] .drop-zone:empty::before { content: "将字段拖到这里"; }
 .field-pill { color: var(--text); }
 .modal-wide { min-width: min(860px, 92vw); }
 /* TRANS User 返回数据树编辑器 */
 .output-tree-toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
 .output-tree { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: #fafbfc; min-height: 120px; }
-.output-tree:empty::before { content: "默认根节点（对象）。拖入字段或添加节点开始构建。"; color: var(--muted); }
+.output-tree:empty::before { content: "Default root (object). Drag fields or add nodes to begin."; color: var(--muted); }
+html[lang="zh"] .output-tree:empty::before { content: "默认根节点（对象）。拖入字段或添加节点开始构建。"; }
 .output-node { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 8px; }
 .output-node:last-child { margin-bottom: 0; }
 .output-node.dragging { opacity: .5; }
@@ -326,7 +329,8 @@ label.full input { width: 100%; }
 .output-node-del { flex: 0 0 auto; }
 .output-node-children { margin: 0 8px 8px; padding: 8px; border: 1px dashed var(--border); border-radius: 8px; min-height: 40px; }
 .output-node-children.over { border-color: var(--primary); background: #eff6ff; }
-.output-node-children:empty::before { content: "拖入字段或子节点"; color: var(--muted); font-size: 12px; }
+.output-node-children:empty::before { content: "Drop fields or nodes here"; color: var(--muted); font-size: 12px; }
+html[lang="zh"] .output-node-children:empty::before { content: "拖入字段或子节点"; }
 @media (max-width: 900px) {
   .features, .stat-grid, .stat-grid-3, .form-grid, .mapping-grid { grid-template-columns: 1fr; }
   .form-grid .span2 { grid-column: span 1; }

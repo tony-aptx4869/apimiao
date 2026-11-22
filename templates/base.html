@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}APIMiao{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.min.css') }}">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261121k">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=20261122i18n">
 </head>
 <body>
 <header class="topbar">
@@ -15,10 +15,10 @@
   </a>
   <div class="top-actions">
     <div class="lang-wrap">
-      <button class="lang-btn" id="langBtn" type="button">{{ t('nav.language') }} <i class="bi bi-chevron-down"></i></button>
+      <button class="lang-btn" id="langBtn" type="button">🌐 Language <i class="bi bi-chevron-down"></i></button>
       <div class="lang-menu" id="langMenu">
-        <a href="{{ url_for('auth.set_lang', lang='en') }}">English</a>
-        <a href="{{ url_for('auth.set_lang', lang='zh') }}">汉语</a>
+        <a href="{{ url_for('auth.set_lang', lang='en') }}">🇺🇸 English</a>
+        <a href="{{ url_for('auth.set_lang', lang='zh') }}">🇨🇳 汉语</a>
       </div>
     </div>
     {% block topactions %}{% endblock %}
