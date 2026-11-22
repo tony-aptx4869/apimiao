@@ -7,6 +7,7 @@ data/apimiao.db-shm
 data/initial_password.txt
 data/secret_key
 data/backups/
+data/*.bak*
 config.ini
 config.ini.bak*
 .DS_Store
