@@ -27,6 +27,7 @@ def _api_config(row):
         "sheet_fields": _load(row["sheet_fields_json"], "{}"),
         "param_mapping": _load(row["param_mapping_json"], "[]"),
         "body_mapping": _load(row["body_mapping_json"], "[]"),
+        "query_config_v2": _load(row["query_config_v2"] if "query_config_v2" in row.keys() else "{}", "{}"),
         "timeout": row["timeout"], "retry": row["retry"], "rate_limit": row["rate_limit"],
         "enabled": row["enabled"],
     }
@@ -54,10 +55,63 @@ def _payload_config(data):
         "sheet_fields_json": json.dumps(data.get("sheet_fields") if isinstance(data.get("sheet_fields"), dict) else {}, ensure_ascii=False),
         "param_mapping_json": dumps(data.get("param_mapping")),
         "body_mapping_json": dumps(data.get("body_mapping")),
+        "query_config_v2": _query_config(data, None),
         "timeout": _number(data.get("timeout"), 10, 1, 120),
         "retry": _number(data.get("retry"), 0, 0, 5),
         "rate_limit": _number(data.get("rate_limit"), 0, 0, 100000),
     }
+
+
+def _field_id(sheet_id, field_name):
+    row = one("SELECT id FROM sheet_fields WHERE sheet_id = ? AND key = ?",
+              (str(sheet_id or ""), str(field_name or "")))
+    return row["id"] if row else ""
+
+
+def _query_config(data, user_id):
+    """Build the typed query config from the form payload at the boundary."""
+    sheet_ids = [str(sid) for sid in (data.get("sheet_ids") or [])]
+    joins = []
+    for item in data.get("joins") or []:
+        if not isinstance(item, dict):
+            continue
+        left_sheet = str(item.get("left_sheet") or "")
+        right_sheet = str(item.get("right_sheet") or "")
+        left_id = _field_id(left_sheet, item.get("left_field"))
+        right_id = _field_id(right_sheet, item.get("right_field"))
+        if left_id and right_id:
+            joins.append({
+                "left_sheet": left_sheet, "left_field_id": left_id,
+                "right_sheet": right_sheet, "right_field_id": right_id,
+            })
+    projections = []
+    for sheet_id, fields in (data.get("sheet_fields") or {}).items():
+        if not isinstance(fields, dict):
+            continue
+        for field_name, enabled in fields.items():
+            field_id = _field_id(sheet_id, field_name)
+            if field_id:
+                projections.append({
+                    "sheet_id": str(sheet_id), "field_id": field_id,
+                    "key": str(field_name), "enabled": bool(enabled),
+                })
+    filters = []
+    for location in ("params", "body"):
+        items = (data.get(location + "_mapping") or [])
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            sheet_id = str(item.get("sheet_id") or "")
+            field_id = _field_id(sheet_id, item.get("field"))
+            if field_id:
+                filters.append({
+                    "sheet_id": sheet_id, "field_id": field_id,
+                    "key": str(item.get("field")),
+                    "alias": str(item.get("alias") or item.get("field")),
+                    "location": location,
+                })
+    return json.dumps({"sheets": sheet_ids, "joins": joins, "projections": projections, "filters": filters},
+                      ensure_ascii=False)
 
 
 def _validate(cfg, user_id):
@@ -108,9 +162,9 @@ def trans_user_new():
     gate = require_login()
     if gate:
         return gate
-    sheets = all_rows("SELECT id, name FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
+    sheets = all_rows("SELECT id, name, fields_json FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
     return render_template("trans_user_form.html", api=None, cfg={},
-                           sheets=[dict(s) for s in sheets])
+                           sheets=[{"id": s["id"], "name": s["name"], "fields": _load(s["fields_json"], "[]")} for s in sheets])
 
 
 @bp.route("/panel/trans-user/<api_id>/edit")
@@ -121,9 +175,9 @@ def trans_user_edit(api_id):
     row = one("SELECT * FROM trans_apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
     if not row:
         return redirect(url_for("api.trans_user_list"))
-    sheets = all_rows("SELECT id, name FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
+    sheets = all_rows("SELECT id, name, fields_json FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
     return render_template("trans_user_form.html", api=dict(row), cfg=_api_config(row),
-                           sheets=[dict(s) for s in sheets])
+                           sheets=[{"id": s["id"], "name": s["name"], "fields": _load(s["fields_json"], "[]")} for s in sheets])
 
 
 @bp.route("/api/trans-user/sheets")
@@ -160,7 +214,8 @@ def trans_api_create():
         return error("Endpoint + method already exists", 400)
     api_id = new_id()
     cols = ("endpoint", "method", "auth", "encoding", "note", "sheet_ids_json", "joins_json",
-            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "timeout", "retry", "rate_limit")
+            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
+            "timeout", "retry", "rate_limit")
     execute(
         "INSERT INTO trans_apis (id, user_id, " + ", ".join(cols) + ", enabled, created_at) VALUES (" +
         ", ".join(["?"] * (len(cols) + 4)) + ")",
@@ -186,7 +241,8 @@ def trans_api_update(api_id):
            (session["uid"], cfg["endpoint"], cfg["method"], api_id)):
         return error("Endpoint + method already exists", 400)
     cols = ("endpoint", "method", "auth", "encoding", "note", "sheet_ids_json", "joins_json",
-            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "timeout", "retry", "rate_limit")
+            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
+            "timeout", "retry", "rate_limit")
     execute("UPDATE trans_apis SET " + ", ".join(f"{c}=?" for c in cols) + " WHERE id=? AND user_id=?",
             (*[cfg[c] for c in cols], api_id, session["uid"]))
     return ok()
