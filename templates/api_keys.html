@@ -90,7 +90,7 @@ document.getElementById('revealCopy').onclick = async () => {
     const old = btn.innerHTML;
     btn.innerHTML = '<i class="bi bi-check-lg"></i> Copied';
     setTimeout(() => btn.innerHTML = old, 1500);
-  } catch (e) { alert('Copy failed, please select the key manually.'); }
+  } catch (e) { uiAlert(window.LANG_ZH ? '复制失败，请手动选择密钥。' : 'Copy failed, please select the key manually.'); }
 };
 // 仅用户手动点左上角 X 关闭，关闭后刷新列表以显示新 key
 document.getElementById('revealClose').onclick = () => {
@@ -102,7 +102,7 @@ document.querySelectorAll('.rename-key').forEach(btn => btn.onclick = () => {
   openKeyModal('rename', tr.dataset.id, tr.querySelector('.key-name').textContent);
 });
 document.querySelectorAll('.del-key').forEach(btn => btn.onclick = async () => {
-  if (!confirm('Delete this API key?')) return;
+  if (!await uiConfirm(window.LANG_ZH ? '删除这个 API Key？' : 'Delete this API key?')) return;
   const r = await apiDelete('/api/api-keys/' + btn.closest('tr').dataset.id);
   if (r.ok) location.reload();
 });

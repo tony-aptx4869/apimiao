@@ -49,7 +49,7 @@ function updateBodyMode() {
 $('body_mode').onchange = updateBodyMode;
 $('formatJsonBtn')?.addEventListener('click', () => {
   try { $('body').value = JSON.stringify(JSON.parse($('body').value), null, 2); updateGutter(); updateActiveLine(); }
-  catch (e) { alert('Invalid JSON: ' + e.message); }
+  catch (e) { uiAlert('Invalid JSON: ' + e.message); }
 });
 
 // ---------- 代码编辑框：行号 + 当前行高亮 ----------

@@ -208,6 +208,21 @@ def _validate(cfg, user_id):
     return None
 
 
+def _form_sheets(user_id):
+    """表单用的 sheets：字段带稳定 id 与 key，供拖拽和输出树引用。"""
+    return [
+        {
+            "id": sheet["id"],
+            "name": sheet["name"],
+            "fields": [
+                {"id": field["id"], "key": field["key"], "enabled": field["enabled"]}
+                for field in sheet["fields"]
+            ],
+        }
+        for sheet in list_sheets(user_id)
+    ]
+
+
 # ---------------- 页面 ----------------
 @bp.route("/panel/trans-user")
 def trans_user_list():
@@ -225,9 +240,19 @@ def trans_user_new():
     gate = require_login()
     if gate:
         return gate
-    sheets = all_rows("SELECT id, name, fields_json FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
-    return render_template("trans_user_form.html", api=None, cfg={},
-                           sheets=[{"id": s["id"], "name": s["name"], "fields": _load(s["fields_json"], "[]")} for s in sheets])
+    api, cfg, is_copy = None, {}, False
+    copy_from = request.args.get("copy_from", "").strip()
+    if copy_from:
+        src = one("SELECT * FROM trans_apis WHERE id = ? AND user_id = ?", (copy_from, session["uid"]))
+        if src:
+            cfg = _api_config(src)
+            cfg["endpoint"] = ""  # Endpoint + Method 必须唯一，留空让用户填
+            api = dict(src)
+            api["id"] = ""        # 让表单以「新建」模式提交
+            api["endpoint"] = ""
+            is_copy = True
+    return render_template("trans_user_form.html", api=api, cfg=cfg,
+                           sheets=_form_sheets(session["uid"]), is_copy=is_copy)
 
 
 @bp.route("/panel/trans-user/<api_id>/edit")
@@ -238,9 +263,8 @@ def trans_user_edit(api_id):
     row = one("SELECT * FROM trans_apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
     if not row:
         return redirect(url_for("api.trans_user_list"))
-    sheets = all_rows("SELECT id, name, fields_json FROM data_sheets WHERE user_id = ? ORDER BY name", (session["uid"],))
     return render_template("trans_user_form.html", api=dict(row), cfg=_api_config(row),
-                           sheets=[{"id": s["id"], "name": s["name"], "fields": _load(s["fields_json"], "[]")} for s in sheets])
+                           sheets=_form_sheets(session["uid"]), is_copy=False)
 
 
 @bp.route("/api/trans-user/sheets")
@@ -327,3 +351,23 @@ def trans_api_delete(api_id):
         return error("API not found", 404)
     execute("DELETE FROM trans_apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
     return ok()
+
+
+@bp.route("/api/trans-apis/bulk-delete", methods=["POST"])
+def trans_api_bulk_delete():
+    gate = require_login()
+    if gate:
+        return gate
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return error("ids must be a non-empty list", 400)
+    if len(ids) > 100:
+        return error("Too many ids (max 100)", 400)
+    clean = list(dict.fromkeys(str(i) for i in ids))
+    placeholders = ", ".join(["?"] * len(clean))
+    cur = execute(
+        f"DELETE FROM trans_apis WHERE user_id = ? AND id IN ({placeholders})",
+        (session["uid"], *clean),
+    )
+    return ok(deleted=cur.rowcount)

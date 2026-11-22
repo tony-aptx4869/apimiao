@@ -10,7 +10,7 @@ function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 
 // 页面内错误提示（替代浏览器 alert）
 function showError(msg){
-  const box=$('formError'); if(!box){ alert(msg); return; }
+  const box=$('formError'); if(!box){ uiAlert(msg); return; }
   box.textContent=msg; box.style.display='block';
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }

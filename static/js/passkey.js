@@ -52,8 +52,8 @@ async function registerPasskey(name, platform, modal) {
     body.platform = platform;
     const r = await apiFetch('/api/passkey/register/verify', 'POST', body);
     if (r.ok) { modal?.classList.remove('show'); location.reload(); }
-    else alert(r.error);
-  } catch (e) { alert('Passkey registration failed: ' + e.message); }
+    else await uiAlert(r.error);
+  } catch (e) { await uiAlert('Passkey registration failed: ' + e.message); }
 }
 
 async function authenticatePasskey(optionsUrl, email) {
@@ -66,7 +66,7 @@ async function authenticatePasskey(optionsUrl, email) {
     const body = JSON.parse(credToJson(cred));
     body.credential_id_hex = Array.from(new Uint8Array(cred.rawId)).map(b => b.toString(16).padStart(2, '0')).join('');
     return body;
-  } catch (e) { alert('Passkey authentication failed: ' + e.message); return null; }
+  } catch (e) { await uiAlert('Passkey authentication failed: ' + e.message); return null; }
 }
 
 document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () => {
@@ -75,5 +75,5 @@ document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () =
   if (!body) return;
   const r = await apiPost('/api/passkey/auth/verify', body);
   if (r.ok) location.reload();
-  else alert(r.error);
+  else await uiAlert(r.error);
 });

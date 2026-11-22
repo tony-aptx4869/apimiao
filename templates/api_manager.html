@@ -12,7 +12,7 @@
   <table class="data-table">
     <thead><tr>
       <th style="width:36px"><input type="checkbox" id="selectAll"></th>
-      <th>Method</th><th>API Endpoint</th><th>Type</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th>
+      <th>Method</th><th>API Endpoint</th><th>{{ '类型' if LANG() == 'zh' else 'Type' }}</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th>
     </tr></thead>
     <tbody>
     {% for a in apis %}
@@ -25,10 +25,11 @@
           <button type="button" class="copy-url" title="{{ '复制完整 API URL' if LANG() == 'zh' else 'Copy full API URL' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy-url"><i class="bi bi-link"></i></button>
         </td>
         <td><span class="tag tag-{{ a.type|lower }}">{{ a.type }}</span></td>
-        <td>{{ a.auth }}</td>
+        <td class="auth-cell" data-auth="{{ a.auth }}">—</td>
         <td class="date-cell" data-utc="{{ a.created_at }}"></td>
         <td class="note-cell">{{ a.note }}</td>
         <td class="row-actions">
+          <a class="btn btn-xs btn-outline edit-api" href="{{ url_for('api.api_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
           <a class="btn btn-xs btn-outline copy-api" href="{{ url_for('api.api_new', copy_from=a.id) }}" title="{{ t('common.copy') }}"><i class="bi bi-plus-square"></i> {{ t('common.copy') }}</a>
           <button class="btn btn-xs btn-danger del-api">{{ t('common.delete') }}</button>
         </td>
@@ -51,13 +52,13 @@ function toggleBulk() {
 }
 document.querySelectorAll('.row-check').forEach(c => c.onchange = toggleBulk);
 document.getElementById('bulkDeleteBtn').onclick = async () => {
-  if (!confirm('Delete selected APIs?')) return;
+  if (!await uiConfirm(window.LANG_ZH ? '删除选中的 API？' : 'Delete selected APIs?')) return;
   const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr').dataset.id);
   const r = await apiPost('/api/apis/bulk-delete', {ids});
   if (r.ok) location.reload();
 };
 document.querySelectorAll('.del-api').forEach(b => b.onclick = async () => {
-  if (!confirm('Delete this API?')) return;
+  if (!await uiConfirm(window.LANG_ZH ? '删除这个 API？' : 'Delete this API?')) return;
   const r = await apiDelete('/api/apis/' + b.closest('tr').dataset.id);
   if (r.ok) location.reload();
 });

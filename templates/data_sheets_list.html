@@ -28,7 +28,7 @@
       <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}"${BOUND_SHEETS.has(s.id)?` disabled title="${esc('{{ t("sheet.delete_bound") }}')}"`:''}>${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
   document.querySelectorAll('.sheet-del').forEach(b=>b.onclick=async()=>{
     if(BOUND_SHEETS.has(b.dataset.id)){showError('{{ t("sheet.delete_bound") }}');return;}
-    if(!confirm('{{ t("sheet.delete_confirm") }}'))return;
+    if(!await uiConfirm('{{ t("sheet.delete_confirm") }}'))return;
     const res=await apiFetch('/api/data-sheets/'+b.dataset.id,'DELETE');
     if(res.ok)location.reload();else showError(res.error||'Delete failed');
   });

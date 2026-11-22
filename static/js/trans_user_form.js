@@ -150,7 +150,7 @@ function renderSheetViews(){
 }
 
 function renderTargets(){
-  ['params','body'].forEach(loc=>{
+  ['params'].forEach(loc=>{
     const box=$('target'+loc.charAt(0).toUpperCase()+loc.slice(1));
     box.innerHTML=mappings[loc].map((m,i)=>{
       const field=findField(m.sheet_id,m.field_id);
@@ -172,10 +172,12 @@ function renderTargets(){
     box.ondragover=e=>e.preventDefault();
     box.ondrop=e=>{
       e.preventDefault();
-      const src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}');
-      if(!src.field_id) return;
+      let src;
+      try { src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); } catch(_) { return; }
+      const f=resolveFieldIdentity(src);
+      if(!f.field_id) return;
       mappings[loc].push({
-        sheet_id:src.sheet, field_id:src.field_id, field:src.field, alias:src.field
+        sheet_id:f.sheet, field_id:f.field_id, field:f.field, alias:f.field
       });
       renderTargets();
     };
@@ -192,6 +194,53 @@ function findFieldKeyById(fieldId){
     if(f) return f.key;
   }
   return '';
+}
+
+// Backend fields now carry stable ids. Fall back to the key when an id is absent,
+// resolving through sheet fields (USER_INIT.sheet_fields / ALL_SHEETS) first, then
+// saved mappings, so create/edit drags always produce a field node with an id.
+function findFieldIdByKey(key, sheetId){
+  if(!key) return '';
+  const scopes=[];
+  if(sheetId && sheetMeta[sheetId]) scopes.push(sheetMeta[sheetId].fields||[]);
+  for(const sid in sheetMeta) if(sid!==sheetId) scopes.push((sheetMeta[sid]||{}).fields||[]);
+  for(const fields of scopes){
+    const f=fields.find(x=>x.key===key||x.id===key);
+    if(f && f.id) return f.id;
+  }
+  const saved=INIT.sheet_fields||{};
+  for(const sid in saved){
+    if(sheetId && sid!==sheetId) continue;
+    if(Object.prototype.hasOwnProperty.call(saved[sid]||{}, key)){
+      const f=((sheetMeta[sid]||{}).fields||[]).find(x=>x.key===key||x.id===key);
+      if(f && f.id) return f.id;
+    }
+  }
+  return '';
+}
+
+function findFieldIdFromSavedMapping(key){
+  if(!key) return '';
+  for(const loc of ['params','body']){
+    const m=(mappings[loc]||[]).find(x=>(x.field===key||x.field_id===key)&&x.field_id);
+    if(m) return m.field_id;
+  }
+  let found='';
+  (function walk(n){
+    if(!n || found) return;
+    if((n.key===key||n.field_id===key) && n.field_id){ found=n.field_id; return; }
+    (n.children||[]).forEach(walk);
+  })(outputTree);
+  return found;
+}
+
+function resolveFieldIdentity(src){
+  let fieldId = src.field_id || '';
+  let field = src.field || '';
+  if(!fieldId) fieldId = findFieldIdByKey(field, src.sheet);
+  if(!fieldId) fieldId = findFieldIdFromSavedMapping(field);
+  if(fieldId && !field) field = findFieldKeyById(fieldId);
+  return { sheet: src.sheet || '', field: field, field_id: fieldId };
 }
 
 function findOutputNode(id, node=outputTree){
@@ -280,8 +329,9 @@ function handleOutputDrop(e, targetId, mode){
   }
   let src;
   try { src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); } catch(_) { return; }
-  if(!src.field_id) return;
-  const fieldNode={ id:genNodeId(), type:'field', name:src.field||'', key:src.field||'', field_id:src.field_id, children:[] };
+  const f=resolveFieldIdentity(src);
+  if(!f.field_id) return;
+  const fieldNode={ id:genNodeId(), type:'field', name:f.field||'', key:f.field||'', field_id:f.field_id, children:[] };
   insertOutputNode(fieldNode,targetId,mode);
   renderOutputTree();
 }
@@ -346,7 +396,7 @@ $('saveBtn').onclick=async()=>{
     endpoint:$('endpoint').value.trim(), method:$('method').value,
     encoding:'UTF-8', auth:$('auth').value, note:$('note').value.trim(),
     sheet_ids:selectedSheets, joins:joins, sheet_fields:sheetFields,
-    param_mapping:mappings.params, body_mapping:mappings.body,
+    param_mapping:mappings.params, body_mapping:[],
     output_tree:outputTree,
     timeout:parseInt($('timeout').value)||10, retry:parseInt($('retry').value)||0,
     rate_limit:parseInt($('rate_limit').value)||0

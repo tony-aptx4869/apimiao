@@ -334,3 +334,11 @@ label.full input { width: 100%; }
   .panel-main { margin-left: 180px; }
   .hero h1 { font-size: 32px; }
 }
+
+/* 居中弹窗：uiAlert / uiConfirm / uiPrompt */
+.ui-modal-overlay { display: flex; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,.45); }
+.ui-modal-box { width: 100%; max-width: 420px; max-height: 85vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+.ui-modal-title { margin: 0 0 12px; font-size: 18px; color: var(--text); }
+.ui-modal-message { margin: 0 0 18px; line-height: 1.6; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.ui-modal-input { margin: 0 0 18px; }
+.ui-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

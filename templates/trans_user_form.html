@@ -4,6 +4,13 @@
 <h1 class="page-title">{{ t('common.edit') if api and api.id else t('common.create') }} TRANS User API</h1>
 <div id="formError" class="alert alert-error" style="display:none"></div>
 
+<style>
+.tu-columns { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 20px; align-items: start; }
+.tu-columns > .panel-card { margin-bottom: 0; }
+.tu-columns .mapping-grid { grid-template-columns: 1fr; }
+@media (max-width: 900px) { .tu-columns { grid-template-columns: 1fr; } .tu-columns > .panel-card { margin-bottom: 20px; } }
+</style>
+
 <div class="panel-card">
 <h2>{{ t('trans.section.general') }}</h2>
 <label class="full">{{ t('api.endpoint') }}<input id="endpoint" value="{{ cfg.endpoint|default('') }}" placeholder="weather/{{ '{{city}}' }}"></label>
@@ -21,6 +28,7 @@
 </div>
 </div>
 
+<div class="tu-columns">
 <div class="panel-card">
 <h2>{{ t('trans.section.data_source') }}</h2>
 <div id="dataFeedback" class="alert alert-info" style="display:none"></div>
@@ -30,10 +38,6 @@
   <div class="mapping-target">
     <h3>Params</h3>
     <div id="targetParams" class="drop-zone"></div>
-  </div>
-  <div class="mapping-target">
-    <h3>Body</h3>
-    <div id="targetBody" class="drop-zone"></div>
   </div>
 </div>
 </div>
@@ -47,6 +51,7 @@
   <button type="button" class="btn btn-outline" id="outputReset">清空/重置为默认根节点</button>
 </div>
 <div id="outputTree" class="output-tree"></div>
+</div>
 </div>
 
 <div class="panel-card">

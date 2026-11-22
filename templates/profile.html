@@ -75,16 +75,15 @@
 <script src="{{ url_for('static', filename='js/passkey.js') }}"></script>
 <script>
 const HAS_2FA = {{ 'true' if user.totp_enabled else 'false' }};
-const LANG_ZH = {{ 'true' if LANG() == 'zh' else 'false' }};
 document.getElementById('saveProfile').onclick = async () => {
   const payload = {email: document.getElementById('profileEmail').value.trim()};
   if (document.getElementById('profilePwd').value) payload.password = document.getElementById('profilePwd').value;
   const r = await apiPost('/api/profile', payload);
-  if (r.ok) location.reload(); else alert(r.error);
+  if (r.ok) location.reload(); else await uiAlert(r.error);
 };
 if (document.getElementById('setup2fa')) document.getElementById('setup2fa').onclick = async () => {
   const r = await apiPost('/api/2fa/setup', {});
-  if (!r.ok) return alert(r.error);
+  if (!r.ok) return await uiAlert(r.error);
   document.getElementById('twofaQr').src = r.qr;
   document.getElementById('twofaSecret').textContent = r.secret;
   document.getElementById('twofaSetup').style.display = 'block';
@@ -93,14 +92,14 @@ if (document.getElementById('enable2fa')) document.getElementById('enable2fa').o
   const r = await apiPost('/api/2fa/enable', {code: document.getElementById('twofaCode').value.trim()});
   if (r.ok) {
     showRecoveryCodes(r.recovery_codes || []);
-  } else alert(r.error);
+  } else await uiAlert(r.error);
 };
 if (document.getElementById('disable2fa')) document.getElementById('disable2fa').onclick = async () => {
   const r = await apiPost('/api/2fa/disable', {
     code: document.getElementById('disable2faCode').value.trim(),
     password: document.getElementById('disable2faPwd').value
   });
-  if (r.ok) location.reload(); else alert(r.error);
+  if (r.ok) location.reload(); else await uiAlert(r.error);
 };
 let passkeys = [];
 async function loadPasskeys() {
@@ -136,7 +135,7 @@ document.getElementById('verifyConfirm').onclick = async () => {
   }
   const r = await apiFetch('/api/passkey/' + pendingDeleteId, 'DELETE', data);
   if (r.ok) { document.getElementById('verifyModal').classList.remove('show'); loadPasskeys(); }
-  else alert(r.error);
+  else await uiAlert(r.error);
 };
 loadPasskeys();
 
@@ -165,14 +164,14 @@ document.getElementById('recoveryDone')?.addEventListener('click', () => {
 });
 document.getElementById('recoveryCopyAll')?.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(recoveryCodes.join('\n')); }
-  catch (e) { alert('Copy failed'); }
+  catch (e) { await uiAlert(window.LANG_ZH ? '复制失败' : 'Copy failed'); }
 });
 document.getElementById('regenRecoveryBtn')?.addEventListener('click', async () => {
-  const code = prompt(LANG_ZH ? '请输入当前 2FA 动态验证码以重新生成：' : 'Enter your current 2FA code to regenerate:');
+  const code = await uiPrompt(window.LANG_ZH ? '请输入当前 2FA 动态验证码以重新生成：' : 'Enter your current 2FA code to regenerate:', '', window.LANG_ZH ? '重新生成恢复码' : 'Regenerate recovery codes');
   if (!code) return;
   const r = await apiPost('/api/2fa/recovery/regenerate', {code: code.trim()});
   if (r.ok) showRecoveryCodes(r.recovery_codes || []);
-  else alert(r.error);
+  else await uiAlert(r.error);
 });
 loadRecoveryStatus();
 </script>

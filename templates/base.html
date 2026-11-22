@@ -25,6 +25,7 @@
   </div>
 </header>
 <main>{% block content %}{% endblock %}</main>
+<script>window.LANG_ZH = {{ 'true' if LANG() == 'zh' else 'false' }};</script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>

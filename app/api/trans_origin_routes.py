@@ -255,7 +255,18 @@ def trans_origin_new():
     gate = require_login()
     if gate:
         return gate
-    return render_template("trans_origin_form.html", origin=None, cfg={})
+    origin, cfg, is_copy = None, {}, False
+    copy_from = request.args.get("copy_from", "").strip()
+    if copy_from:
+        src = one("SELECT * FROM trans_origins WHERE id = ? AND user_id = ?", (copy_from, session["uid"]))
+        if src:
+            cfg = _origin_config(src)
+            cfg["original_url"] = ""  # 由用户填写，避免与原采集地址相同
+            origin = dict(src)
+            origin["id"] = ""         # 让表单以「新建」模式提交
+            origin["original_url"] = ""
+            is_copy = True
+    return render_template("trans_origin_form.html", origin=origin, cfg=cfg, is_copy=is_copy)
 
 
 @bp.route("/panel/trans-origin/<origin_id>/edit")
@@ -515,6 +526,26 @@ def trans_origin_delete(origin_id):
         return error("Origin not found", 404)
     execute("DELETE FROM trans_origins WHERE id = ? AND user_id = ?", (origin_id, session["uid"]))
     return ok()
+
+
+@bp.route("/api/trans-origins/bulk-delete", methods=["POST"])
+def trans_origin_bulk_delete():
+    gate = require_login()
+    if gate:
+        return gate
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return error("ids must be a non-empty list", 400)
+    if len(ids) > 100:
+        return error("Too many ids (max 100)", 400)
+    clean = list(dict.fromkeys(str(i) for i in ids))
+    placeholders = ", ".join(["?"] * len(clean))
+    cur = execute(
+        f"DELETE FROM trans_origins WHERE user_id = ? AND id IN ({placeholders})",
+        (session["uid"], *clean),
+    )
+    return ok(deleted=cur.rowcount)
 
 
 @bp.route("/api/trans-origins/<origin_id>/fetch-now", methods=["POST"])

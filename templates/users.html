@@ -46,14 +46,14 @@ document.getElementById('userSave').onclick = async () => {
   if (document.getElementById('uPwd').value) payload.password = document.getElementById('uPwd').value;
   const r = id ? await apiFetch('/api/users/' + id, 'PUT', payload) : await apiPost('/api/users', payload);
   if (r.ok) { document.getElementById('userModal').classList.remove('show'); loadUsers(); }
-  else alert(r.error);
+  else await uiAlert(r.error);
 };
 function bindUserEvents() {
   document.querySelectorAll('.edit-user').forEach(b => b.onclick = () => openUserModal(users.find(u => u.id === b.closest('tr').dataset.id)));
   document.querySelectorAll('.del-user').forEach(b => b.onclick = async () => {
-    if (!confirm('Delete this user?')) return;
+    if (!await uiConfirm(window.LANG_ZH ? '删除这个用户？' : 'Delete this user?')) return;
     const r = await apiDelete('/api/users/' + b.closest('tr').dataset.id);
-    if (r.ok) loadUsers(); else alert(r.error);
+    if (r.ok) loadUsers(); else await uiAlert(r.error);
   });
 }
 loadUsers();

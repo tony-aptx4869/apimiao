@@ -4,28 +4,31 @@
 <div class="page-head">
   <h1 class="page-title">{{ t('panel.trans_user') }}</h1>
   <div class="head-actions">
+    <button class="btn btn-danger" id="bulkDeleteBtn" style="display:none">{{ t('common.delete') }}</button>
     <a class="btn btn-primary" href="{{ url_for('api.trans_user_new') }}"><i class="bi bi-plus"></i> {{ t('trans.create_user') }}</a>
   </div>
 </div>
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Method</th><th>API Endpoint</th><th>Type</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
+    <thead><tr><th style="width:36px"><input type="checkbox" id="selectAll"></th><th>Method</th><th>API Endpoint</th><th>{{ '类型' if LANG() == 'zh' else 'Type' }}</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
     <tbody>
     {% for a in apis %}
-      <tr>
+      <tr data-id="{{ a.id }}">
+        <td><input type="checkbox" class="row-check"></td>
         <td><span class="method method-{{ a.method }}">{{ a.method }}</span></td>
         <td class="endpoint-cell"><code>{{ prefix }}/{{ a.endpoint }}</code></td>
         <td><span class="tag tag-trans">TRANS User</span></td>
-        <td>{{ a.auth }}</td>
-        <td class="date-cell" data-utc="${esc(a.created_at||'')}"></td>
+        <td class="auth-cell" data-auth="{{ a.auth }}">—</td>
+        <td class="date-cell" data-utc="{{ a.created_at }}"></td>
         <td class="note-cell">{{ a.note }}</td>
         <td class="row-actions">
+          <a class="btn btn-xs btn-outline" href="/panel/trans-user/new?copy_from={{ a.id }}">{{ t('common.copy') }}</a>
           <a class="btn btn-xs btn-outline" href="{{ url_for('api.trans_user_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
           <button class="btn btn-xs btn-danger del-api" data-id="{{ a.id }}">{{ t('common.delete') }}</button>
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="empty">No TRANS User APIs yet.</td></tr>
+      <tr><td colspan="8" class="empty">No TRANS User APIs yet.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -33,10 +36,25 @@
 {% endblock %}
 {% block scripts %}
 <script>
-document.querySelectorAll('.del-api').forEach(b=>b.onclick=async()=>{
-  if(!confirm('Delete this API?')) return;
-  const r=await apiFetch('/api/trans-apis/'+b.dataset.id,'DELETE');
-  if(r.ok) location.reload(); else alert(r.error);
+document.getElementById('selectAll').onchange = e => {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = e.target.checked);
+  toggleBulk();
+};
+function toggleBulk() {
+  document.getElementById('bulkDeleteBtn').style.display = document.querySelector('.row-check:checked') ? '' : 'none';
+}
+document.querySelectorAll('.row-check').forEach(c => c.onchange = toggleBulk);
+toggleBulk();
+document.getElementById('bulkDeleteBtn').onclick = async () => {
+  if (!await uiConfirm(window.LANG_ZH ? '删除选中的 TRANS User API？' : 'Delete selected APIs?')) return;
+  const ids = [...document.querySelectorAll('.row-check:checked')].map(c => c.closest('tr').dataset.id);
+  const r = await apiPost('/api/trans-apis/bulk-delete', {ids});
+  if (r.ok) location.reload(); else await uiAlert(r.error);
+};
+document.querySelectorAll('.del-api').forEach(b => b.onclick = async () => {
+  if (!await uiConfirm(window.LANG_ZH ? '删除这个 API？' : 'Delete this API?')) return;
+  const r = await apiFetch('/api/trans-apis/' + b.dataset.id, 'DELETE');
+  if (r.ok) location.reload(); else await uiAlert(r.error);
 });
 </script>
 {% endblock %}
