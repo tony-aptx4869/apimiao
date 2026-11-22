@@ -78,6 +78,11 @@ def source_contracts():
         "advanced_semantics_hint": "超时和重试不参与用户请求" in form,
         "single_sheet_join_guard": "selectedSheets.length < 2" in js
                                    and "src.sheet===target.dataset.sheet" in js,
+        "output_node_drag_scope": 'class="output-node" data-id="${esc(node.id)}" draggable="true"' in js
+                                  and "function blockOutputNodeDrag()" in js
+                                  and "#outputTree .output-node, #outputTree .output-node-row" in js
+                                  and "blockOutputNodeDrag();" in js
+                                  and "function restoreOutputNodeDraggable()" in js,
     }
 
 

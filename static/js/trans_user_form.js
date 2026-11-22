@@ -313,13 +313,13 @@ function renderOutputNode(node){
   const typeLabel = labels[node.type] || labels.field;
   const sourceKey = findFieldKeyById(node.field_id)||node.field_id||labels.unbound;
   const source = node.type==='field'
-    ? `<span class="output-node-source">${labels.source} ${esc(sourceKey)}</span>` : '';
+    ? `<span class="output-node-source" draggable="true">${labels.source} ${esc(sourceKey)}</span>` : '';
   const children = isContainer
     ? `<div class="output-node-children">${(node.children||[]).map(renderOutputNode).join('')}</div>` : '';
   const delBtn = node.id===outputTree.id ? '' : `<button type="button" class="btn btn-xs btn-danger output-node-del" title="${labels.del}">&times;</button>`;
   return `<div class="output-node" data-id="${esc(node.id)}" draggable="true">
-    <div class="output-node-row">
-      <span class="output-node-type type-${node.type}">${typeLabel}</span>
+    <div class="output-node-row" draggable="true">
+      <span class="output-node-type type-${node.type}" draggable="true">${typeLabel}</span>
       <input class="output-node-name" value="${esc(node.name)}" placeholder="${labels.name}" draggable="false">
       <input class="output-node-key" value="${esc(node.key)}" placeholder="${labels.key}" draggable="false">
       ${source}
@@ -350,6 +350,22 @@ function handleOutputDrop(e, targetId, mode){
   renderOutputTree();
 }
 
+function blockOutputNodeDrag(){
+  document.querySelectorAll(
+    '#outputTree .output-node, #outputTree .output-node-row, #outputTree .output-node-type, #outputTree .output-node-source'
+  ).forEach(el=>{
+    el.draggable=false;
+    el.dataset.dragBlocked='1';
+  });
+}
+
+function restoreOutputNodeDraggable(){
+  document.querySelectorAll('#outputTree [data-drag-blocked="1"]').forEach(el=>{
+    el.draggable=true;
+    delete el.dataset.dragBlocked;
+  });
+}
+
 function bindOutputTreeEvents(box){
   box.querySelectorAll('.output-node').forEach(el=>{
     const id=el.dataset.id;
@@ -363,6 +379,7 @@ function bindOutputTreeEvents(box){
       e.dataTransfer.setData(OUTPUT_NODE_MIME,id);
       e.dataTransfer.setData('text/plain','');
       e.dataTransfer.effectAllowed='move';
+      if(e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(el, e.offsetX||10, e.offsetY||10);
       el.classList.add('dragging');
     };
     el.ondragend=()=>el.classList.remove('dragging');
@@ -373,6 +390,19 @@ function bindOutputTreeEvents(box){
       handleOutputDrop(e,id,'before');
     };
   });
+  box.querySelectorAll('.output-node input').forEach(inp=>{
+    inp.onmousedown=e=>{
+      e.stopPropagation();
+      blockOutputNodeDrag();
+    };
+    inp.onmouseup=restoreOutputNodeDraggable;
+    inp.onblur=restoreOutputNodeDraggable;
+  });
+  if(!window.OUTPUT_DRAG_RESTORE_BOUND){
+    document.addEventListener('mouseup',restoreOutputNodeDraggable);
+    document.addEventListener('dragend',restoreOutputNodeDraggable);
+    window.OUTPUT_DRAG_RESTORE_BOUND=true;
+  }
   box.querySelectorAll('.output-node-children').forEach(el=>{
     if(el.parentElement) el.dataset.parent=el.parentElement.dataset.id;
     el.ondragover=e=>{ e.preventDefault(); e.stopPropagation(); el.classList.add('over'); };
