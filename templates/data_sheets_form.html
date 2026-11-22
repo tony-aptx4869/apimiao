@@ -1,0 +1,34 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('common.edit') if sheet and sheet.id else t('common.create') }} Data Sheet · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('common.edit') if sheet and sheet.id else t('common.create') }} Data Sheet</h1>
+<div id="formError" class="alert alert-error" style="display:none"></div>
+<div class="panel-card">
+  <h2>{{ t('trans.section.general') }}</h2>
+  <label class="full">{{ t('sheet.name') }}<input id="sheetName" value="{{ sheet.name if sheet else '' }}"></label>
+  <label class="full">{{ t('sheet.description') }}<input id="sheetDescription" value="{{ sheet.description if sheet else '' }}"></label>
+</div>
+<div class="panel-card">
+  <h2>{{ t('sheet.discover') }}</h2>
+  <label class="full">{{ t('sheet.sample_json') }}<textarea id="sampleJson" rows="8" placeholder='{"code":200,"result":{"prov":"北京","p92":"8.37"}}'></textarea></label>
+  <div class="form-row">
+    <label>{{ t('sheet.path') }}<input id="extractPath" value="result"></label>
+    <label>&nbsp;<button type="button" class="btn btn-outline" id="discoverBtn">{{ t('sheet.discover') }}</button></label>
+  </div>
+</div>
+<div class="panel-card">
+  <h2>{{ t('sheet.fields') }}</h2>
+  <div id="fieldRows" class="kv-box"></div>
+  <button type="button" class="btn btn-outline" id="addField">{{ t('common.add') }}</button>
+</div>
+<div class="form-actions">
+  <button class="btn btn-primary" id="saveBtn">{{ t('common.save') }}</button>
+  <a class="btn btn-outline" href="{{ url_for('data_sheets.data_sheets_list') }}">{{ t('common.cancel') }}</a>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+window.SHEET_INIT = {{ (sheet|tojson) if sheet else 'null' }};
+</script>
+<script src="{{ url_for('static', filename='js/data_sheets_form.js') }}"></script>
+{% endblock %}

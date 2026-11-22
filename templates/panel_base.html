@@ -10,6 +10,7 @@
       <a href="{{ url_for('control.logs_page') }}" class="{{ 'active' if request.endpoint == 'control.logs_page' }}">{{ t('panel.logs') }}</a>
       <a href="{{ url_for('control.api_keys_page') }}" class="{{ 'active' if request.endpoint == 'control.api_keys_page' }}">{{ t('panel.apikeys') }}</a>
       <a href="{{ url_for('api.api_manager') }}" class="{{ 'active' if request.endpoint in ('api.api_manager','api.api_new','api.api_edit') }}">{{ t('panel.proxy_api') }}</a>
+      <a href="{{ url_for('data_sheets.data_sheets_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('data_sheets.') }}">{{ t('panel.data_sheets') }}</a>
       <a href="{{ url_for('api.trans_origin_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('api.trans_origin') }}">{{ t('panel.trans_origin') }}</a>
       <a href="{{ url_for('api.trans_user_list') }}" class="{{ 'active' if request.endpoint and (request.endpoint.startswith('api.trans_user') or request.endpoint.startswith('api.trans_api')) }}">{{ t('panel.trans_user') }}</a>
       <a href="{{ url_for('control.profile') }}" class="{{ 'active' if request.endpoint == 'control.profile' }}">{{ t('panel.profile') }}</a>

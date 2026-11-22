@@ -43,10 +43,12 @@ def create_app():
     from .auth import bp as auth_bp
     from .control import bp as control_bp
     from .api import bp as api_bp
+    from .data_sheets import bp as data_sheets_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(control_bp)
     app.register_blueprint(api_bp)
+    app.register_blueprint(data_sheets_bp)
 
     # 调度器不在这里启动：Web 进程（尤其 gunicorn 多 worker）不得启动 APScheduler。
     # 单进程开发用 main.py 的 start_embedded_scheduler；生产用 scheduler_worker.py 独立进程。

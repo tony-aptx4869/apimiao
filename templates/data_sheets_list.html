@@ -1,0 +1,31 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('sheet.title') }} · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('sheet.title') }}</h1>
+<div id="sheetError" class="alert alert-error" style="display:none"></div>
+<div class="toolbar"><a class="btn btn-primary" href="{{ url_for('data_sheets.data_sheets_new') }}">{{ t('sheet.new') }}</a></div>
+<div class="panel-card"><div class="table-wrap"><table class="data-table">
+  <thead><tr><th>{{ t('sheet.name') }}</th><th>{{ t('sheet.description') }}</th><th>{{ t('sheet.fields') }}</th><th>{{ t('api.created') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
+  <tbody id="sheetRows"></tbody>
+</table></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async function(){
+  const err=document.getElementById('sheetError');
+  showError=(msg)=>{err.textContent=msg;err.style.display='block';};
+  const r=await apiFetch('/api/data-sheets');
+  if(!r.ok){showError(r.error||'Failed to load data sheets');return;}
+  document.getElementById('sheetRows').innerHTML=(r.sheets||[]).map(s=>`<tr>
+    <td><code>${esc(s.name)}</code></td><td>${esc(s.description||'')}</td><td>${(s.fields||[]).length}</td>
+    <td class="date-cell" data-utc="${esc(s.created_at||'')}"></td>
+    <td class="row-actions"><a class="btn btn-xs btn-outline" href="/panel/data-sheets/${esc(s.id)}/edit">${esc('{{ t("common.edit") }}')}</a>
+      <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}">${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
+  document.querySelectorAll('.sheet-del').forEach(b=>b.onclick=async()=>{
+    if(!confirm('{{ t("sheet.delete_confirm") }}'))return;
+    const res=await apiFetch('/api/data-sheets/'+b.dataset.id,'DELETE');
+    if(res.ok)location.reload();else showError(res.error||'Delete failed');
+  });
+})();
+</script>
+{% endblock %}
