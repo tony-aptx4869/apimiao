@@ -192,6 +192,7 @@ function collectPayload(){
     params:collectKV('params'), headers:collectKV('headers'), cookies:collectKV('cookies'),
     body_mode:$('body_mode').value, body:$('body').value,
     timeout:parseInt($('timeout').value)||10, retry:parseInt($('retry').value)||0,
+    batch_retry_rounds:parseInt($('batch_retry_rounds')?.value||2),
     request_interval:parseFloat($('request_interval').value)||0,
     frequency:$('frequency').value,
     days:[...document.querySelectorAll('.day-check:checked')].map(c=>parseInt(c.value)),
@@ -230,38 +231,69 @@ function renderFields(data,drift){
   }).join(''):'<div class="hint">Choose a Data Sheet with fields.</div>';
 }
 
-// ---------- Save：预检弹窗 ----------
-function precheckUrl(){ return ORIGIN_ID?`/api/trans-origins/${ORIGIN_ID}/precheck`:'/api/trans-origins/precheck'; }
+// ---------- Save：任务化预检弹窗 ----------
+let precheckTaskId = null;
+let precheckTimer = null;
+function precheckTaskUrl(){ return ORIGIN_ID?`/api/trans-origins/${ORIGIN_ID}/precheck-tasks`:'/api/trans-origins/precheck-tasks'; }
+function stopPrecheckPolling(){ if(precheckTimer){ clearInterval(precheckTimer); precheckTimer=null; } }
+function hideDecisionButtons(){
+  ['retryPrecheckBtn','cancelPrecheckBtn','forceSaveBtn'].forEach(id=>$(id).style.display='none');
+}
+function renderPrecheckTask(task){
+  const total=task.total||0, done=task.done||0, failed=task.failed||0;
+  $('precheckProgress').textContent=`${done} / ${total}，失败 ${failed}，第 ${task.round||1} 轮`;
+  const detail=[];
+  if(task.current) detail.push('当前请求 '+task.current);
+  if(task.next_retry_at){
+    const left=Math.max(0,Math.ceil((new Date(task.next_retry_at).getTime()-Date.now())/1000));
+    detail.push('下次重试 '+left+'s');
+  }
+  $('precheckDetail').textContent=detail.join(' · ');
+  const log=$('precheckLog');
+  const errors=(task.errors||[]).map(e=>`<div class="log-err">${esc(JSON.stringify(e.params||{}))} → ${esc(e.error)}</div>`).join('');
+  const warnings=(task.warnings||[]).map(w=>`<div class="log-warn">${esc(JSON.stringify(w.params||{}))} → ${esc(w.error)}</div>`).join('');
+  log.innerHTML=errors+warnings+(task.error&&!errors?`<div class="log-err">${esc(task.error)}</div>`:'');
+  hideDecisionButtons();
+  if(task.status==='AWAITING_USER'){
+    if(task.can_retry) $('retryPrecheckBtn').style.display='inline-block';
+    $('cancelPrecheckBtn').style.display='inline-block';
+    $('forceSaveBtn').style.display='inline-block';
+  } else if(task.status==='SUCCEEDED'||task.status==='SAVED_UNVERIFIED'){
+    stopPrecheckPolling();
+    setTimeout(()=>location.href='/panel/trans-origin',600);
+  } else if(task.status==='CANCELLED'){
+    stopPrecheckPolling();
+    $('precheckProgress').textContent='预检已取消，未保存配置，未写入数据';
+  }
+}
+async function pollPrecheckTask(){
+  if(!precheckTaskId) return;
+  const r=await apiFetch('/api/trans-origins/precheck-tasks/'+precheckTaskId);
+  if(!r.ok){ showError(r.error||'预检状态读取失败'); stopPrecheckPolling(); return; }
+  renderPrecheckTask(r.task||{});
+}
+async function decidePrecheck(decision){
+  if(!precheckTaskId) return;
+  const r=await apiPost('/api/trans-origins/precheck-tasks/'+precheckTaskId+'/decision',{decision});
+  if(!r.ok){ showError(r.error||'预检决策失败'); return; }
+  await pollPrecheckTask();
+}
 $('saveBtn').onclick=async()=>{
   const btn=$('saveBtn'); if(btn.disabled) return; btn.disabled=true;
-  const payload=collectPayload();
+  stopPrecheckPolling();
   const modal=$('precheckModal'); modal.classList.add('show');
-  const prog=$('precheckProgress'), log=$('precheckLog');
-  prog.textContent='正在预检...'; log.innerHTML=''; $('forceSaveBtn').style.display='none';
+  $('precheckProgress').textContent='正在创建预检任务...'; $('precheckDetail').textContent=''; $('precheckLog').innerHTML='';
+  hideDecisionButtons();
   try{
-    const r=await apiPost(precheckUrl(), payload);
-    prog.textContent=`${r.total||0} 项，成功 ${(r.total||0)-(r.failed||0)}，失败 ${r.failed||0}`;
-    if(r.errors&&r.errors.length){
-      log.innerHTML=r.errors.map(e=>`<div class="log-err">${esc(JSON.stringify(e.params))} → ${esc(e.error)}</div>`).join('');
-    }
-    if(r.warnings&&r.warnings.length){
-      log.innerHTML+=r.warnings.map(w=>`<div class="log-warn">${esc(JSON.stringify(w.params))} → ${esc(w.error)}</div>`).join('');
-    }
-    if(r.saved){
-      $('forceSaveBtn').style.display='none';
-      setTimeout(()=>location.href='/panel/trans-origin',800);
-    } else {
-      $('forceSaveBtn').style.display='inline-block';
-    }
-  }catch(e){ prog.textContent='预检失败'; log.innerHTML=`<div class="log-err">${esc(e.message||e)}</div>`; }
-  finally { btn.disabled=false; }
+    const r=await apiPost(precheckTaskUrl(), collectPayload());
+    if(!r.ok){ showError(r.error||'预检启动失败'); btn.disabled=false; return; }
+    precheckTaskId=r.task_id;
+    await pollPrecheckTask();
+    precheckTimer=setInterval(pollPrecheckTask,700);
+  }catch(e){ showError(e.message||e); btn.disabled=false; }
+  finally { if(precheckTaskId) btn.disabled=false; }
 };
-$('precheckClose').onclick=()=>$('precheckModal').classList.remove('show');
-$('forceSaveBtn').onclick=async()=>{
-  const btn=$('forceSaveBtn'); if(btn.disabled) return; btn.disabled=true;
-  const p=collectPayload(); p.force_save=true;
-  try{
-    const r=await apiPost(precheckUrl(), p);
-    if(r.saved) location.href='/panel/trans-origin'; else showError(r.error||'保存失败');
-  } finally { btn.disabled=false; }
-};
+$('precheckClose').onclick=()=>{ stopPrecheckPolling(); $('precheckModal').classList.remove('show'); };
+$('retryPrecheckBtn').onclick=()=>decidePrecheck('retry');
+$('cancelPrecheckBtn').onclick=()=>decidePrecheck('cancel');
+$('forceSaveBtn').onclick=()=>decidePrecheck('save_anyway');

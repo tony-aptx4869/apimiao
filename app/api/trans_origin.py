@@ -269,7 +269,7 @@ def extract_payload(body_text, fields_cfg=None):
 
 
 # ---------------- 完整批次采集 ----------------
-def collect_batch(origin, cfg_override=None):
+def collect_batch(origin, cfg_override=None, combos_override=None):
     """只采集不落库（dry-run）：跑完整一轮，把所有请求结果收集在内存返回。
 
     用于 Save 预检——失败时数据库完全不留痕迹，全成功才由 commit_batch 落库。
@@ -278,12 +278,15 @@ def collect_batch(origin, cfg_override=None):
       payloads: 成功请求的 {combo, data}（按字段配置过滤后）
     """
     cfg = dict(cfg_override) if cfg_override else dict(origin)
-    pairs, err = normalize_pairs(json.loads(cfg.get("params_json", "[]")))
-    if err:
-        return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
-    combos, err = expand_combinations(pairs)
-    if err:
-        return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
+    if combos_override is None:
+        pairs, err = normalize_pairs(json.loads(cfg.get("params_json", "[]")))
+        if err:
+            return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
+        combos, err = expand_combinations(pairs)
+        if err:
+            return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
+    else:
+        combos = list(combos_override)
 
     fields_cfg = load_sheet_fields(origin.get("sheet_id") or cfg.get("sheet_id") or "")
     interval = float(cfg.get("request_interval", 0) or 0)

@@ -17,6 +17,7 @@ TRANS_REWRITE_VERSION = "001_trans_rewrite"
 TRANS_HARDENING_VERSION = "002_trans_hardening"
 TRANS_CLEANUP_VERSION = "003_trans_cleanup"
 TERMINAL_FIELDS_VERSION = "004_terminal_fields"
+PRECHECK_TASKS_VERSION = "005_precheck_tasks"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -113,6 +114,7 @@ CREATE TABLE IF NOT EXISTS trans_origins (
     encoding TEXT NOT NULL DEFAULT 'UTF-8',
     timeout INTEGER NOT NULL DEFAULT 10,
     retry INTEGER NOT NULL DEFAULT 0,
+    batch_retry_rounds INTEGER NOT NULL DEFAULT 2,
     request_interval REAL NOT NULL DEFAULT 0,
     frequency TEXT NOT NULL DEFAULT 'DAY',
     days_json TEXT NOT NULL DEFAULT '[]',
@@ -172,6 +174,28 @@ CREATE TABLE IF NOT EXISTS fetch_logs (
     fetched_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_fetchlogs_batch ON fetch_logs(batch_id);
+
+-- TRANS Origin 预检任务：状态由后台执行器更新，前端轮询展示
+CREATE TABLE IF NOT EXISTS precheck_tasks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    origin_id TEXT NOT NULL,
+    is_new INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'RUNNING',
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    state_json TEXT NOT NULL DEFAULT '{}',
+    total INTEGER NOT NULL DEFAULT 0,
+    done INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    round INTEGER NOT NULL DEFAULT 1,
+    max_rounds INTEGER NOT NULL DEFAULT 2,
+    next_retry_at TEXT NOT NULL DEFAULT '',
+    current TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_precheck_user ON precheck_tasks(user_id, created_at);
 
 -- 用户 API 配置：指向若干数据表、字段开关、JOIN、别名映射、限流
 CREATE TABLE IF NOT EXISTS trans_apis (
@@ -652,6 +676,44 @@ def apply_terminal_fields_migration(conn):
     return report
 
 
+def apply_precheck_tasks_migration(conn):
+    """Add precheck task storage and configurable batch retry rounds."""
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (PRECHECK_TASKS_VERSION,)
+    ).fetchone()
+    if applied:
+        return {"version": PRECHECK_TASKS_VERSION, "applied": False}
+    _ensure_column(conn, "trans_origins", "batch_retry_rounds", "INTEGER NOT NULL DEFAULT 2")
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS precheck_tasks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            origin_id TEXT NOT NULL,
+            is_new INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'RUNNING',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            state_json TEXT NOT NULL DEFAULT '{}',
+            total INTEGER NOT NULL DEFAULT 0,
+            done INTEGER NOT NULL DEFAULT 0,
+            failed INTEGER NOT NULL DEFAULT 0,
+            round INTEGER NOT NULL DEFAULT 1,
+            max_rounds INTEGER NOT NULL DEFAULT 2,
+            next_retry_at TEXT NOT NULL DEFAULT '',
+            current TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_precheck_user ON precheck_tasks(user_id, created_at);
+    """)
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (PRECHECK_TASKS_VERSION, utcnow()),
+    )
+    conn.commit()
+    return {"version": PRECHECK_TASKS_VERSION, "applied": True}
+
+
 def prune_trans_retention():
     """Delete old snapshots and logs when retention days are configured."""
     from config import TRANS_LOG_RETENTION_DAYS, TRANS_ROW_RETENTION_DAYS
@@ -702,6 +764,7 @@ def migrate_database(path=None, dry_run=False):
         report["hardening"] = apply_trans_hardening_migration(conn)
         report["cleanup"] = apply_trans_cleanup_migration(conn)
         report["terminal_fields"] = apply_terminal_fields_migration(conn)
+        report["precheck_tasks"] = apply_precheck_tasks_migration(conn)
     finally:
         conn.close()
     report["dry_run"] = dry_run
@@ -730,6 +793,7 @@ def init_db(seed_admin=True):
         apply_trans_hardening_migration(conn)
         apply_trans_cleanup_migration(conn)
         apply_terminal_fields_migration(conn)
+        apply_precheck_tasks_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()

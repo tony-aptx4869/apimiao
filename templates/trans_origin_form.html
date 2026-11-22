@@ -55,6 +55,7 @@
 <div class="form-row">
   <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.timeout|default(10) }}"></label>
   <label>{{ t('api.retry') }}<input id="retry" type="number" value="{{ cfg.retry|default(0) }}"></label>
+  <label>{{ t('trans.batch_retry_rounds') }}<input id="batch_retry_rounds" type="number" min="0" max="5" value="{{ cfg.batch_retry_rounds|default(2) }}"></label>
   <label>{{ t('trans.request_interval') }}<input id="request_interval" type="number" step="0.1" value="{{ cfg.request_interval|default(0) }}"><p class="hint">{{ t('trans.request_interval_hint') }}</p></label>
 </div>
 </div>
@@ -107,8 +108,11 @@
   <div class="modal-box">
     <h3>{{ t('trans.precheck_title') }}</h3>
     <div id="precheckProgress" class="progress">0 / 0</div>
+    <div id="precheckDetail" class="hint"></div>
     <div id="precheckLog" class="precheck-log"></div>
     <div class="modal-actions">
+      <button class="btn btn-outline" id="retryPrecheckBtn" style="display:none">{{ t('trans.precheck_retry') }}</button>
+      <button class="btn btn-outline" id="cancelPrecheckBtn" style="display:none">{{ t('trans.precheck_cancel') }}</button>
       <button class="btn btn-outline" id="forceSaveBtn" style="display:none">{{ t('trans.force_save') }}</button>
       <button class="btn btn-outline" id="precheckClose">{{ t('common.close') }}</button>
     </div>
