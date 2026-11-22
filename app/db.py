@@ -18,6 +18,7 @@ TRANS_HARDENING_VERSION = "002_trans_hardening"
 TRANS_CLEANUP_VERSION = "003_trans_cleanup"
 TERMINAL_FIELDS_VERSION = "004_terminal_fields"
 PRECHECK_TASKS_VERSION = "005_precheck_tasks"
+OUTPUT_TREE_VERSION = "006_output_tree"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -209,6 +210,7 @@ CREATE TABLE IF NOT EXISTS trans_apis (
     sheet_ids_json TEXT NOT NULL DEFAULT '[]',
     joins_json TEXT NOT NULL DEFAULT '[]',
     sheet_fields_json TEXT NOT NULL DEFAULT '{}',
+    output_tree_json TEXT NOT NULL DEFAULT '',
     param_mapping_json TEXT NOT NULL DEFAULT '[]',
     body_mapping_json TEXT NOT NULL DEFAULT '[]',
     timeout INTEGER NOT NULL DEFAULT 10,
@@ -714,6 +716,21 @@ def apply_precheck_tasks_migration(conn):
     return {"version": PRECHECK_TASKS_VERSION, "applied": True}
 
 
+def apply_output_tree_migration(conn):
+    """Add trans_apis.output_tree_json. Safe to rerun after partial writes."""
+    _ensure_column(conn, "trans_apis", "output_tree_json", "TEXT NOT NULL DEFAULT ''")
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (OUTPUT_TREE_VERSION,)
+    ).fetchone()
+    if not applied:
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (OUTPUT_TREE_VERSION, utcnow()),
+        )
+    conn.commit()
+    return {"version": OUTPUT_TREE_VERSION, "applied": not bool(applied)}
+
+
 def prune_trans_retention():
     """Delete old snapshots and logs when retention days are configured."""
     from config import TRANS_LOG_RETENTION_DAYS, TRANS_ROW_RETENTION_DAYS
@@ -765,6 +782,7 @@ def migrate_database(path=None, dry_run=False):
         report["cleanup"] = apply_trans_cleanup_migration(conn)
         report["terminal_fields"] = apply_terminal_fields_migration(conn)
         report["precheck_tasks"] = apply_precheck_tasks_migration(conn)
+        report["output_tree"] = apply_output_tree_migration(conn)
     finally:
         conn.close()
     report["dry_run"] = dry_run
@@ -794,6 +812,7 @@ def init_db(seed_admin=True):
         apply_trans_cleanup_migration(conn)
         apply_terminal_fields_migration(conn)
         apply_precheck_tasks_migration(conn)
+        apply_output_tree_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()

@@ -9,6 +9,54 @@ from . import bp
 from ..data_sheets.service import list_sheets
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+OUTPUT_NODE_TYPES = {"object", "array", "field"}
+OUTPUT_MAX_DEPTH = 20
+
+
+def _default_output_tree():
+    return {"id": "root", "type": "object", "name": "root", "key": "", "children": []}
+
+
+def _sanitize_output_tree(value):
+    """Validate an output tree at the boundary and keep only known node fields."""
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("Invalid output tree: root must be an object node")
+
+    def walk(node, depth, ancestors):
+        if not isinstance(node, dict):
+            raise ValueError("Invalid output tree: each node must be an object")
+        if id(node) in ancestors:
+            raise ValueError("Invalid output tree: cycle detected")
+        if depth > OUTPUT_MAX_DEPTH:
+            raise ValueError(f"Invalid output tree: max depth {OUTPUT_MAX_DEPTH} exceeded")
+        node_type = str(node.get("type") or "")
+        if node_type not in OUTPUT_NODE_TYPES:
+            raise ValueError(f"Invalid output tree: unknown node type {node_type!r}")
+        children = node.get("children")
+        if children is None:
+            children = []
+        if not isinstance(children, list):
+            raise ValueError("Invalid output tree: children must be a list")
+        cleaned = {
+            "id": str(node.get("id") or ""),
+            "type": node_type,
+            "name": str(node.get("name") or ""),
+            "key": str(node.get("key") or ""),
+            "field_id": str(node.get("field_id") or ""),
+        }
+        ancestors.add(id(node))
+        try:
+            cleaned["children"] = [walk(child, depth + 1, ancestors) for child in children]
+        finally:
+            ancestors.remove(id(node))
+        return cleaned
+
+    root = walk(value, 1, set())
+    if root["type"] != "object":
+        raise ValueError("Invalid output tree: root must be an object node")
+    return root
 
 
 def _load(value, default):
@@ -26,6 +74,7 @@ def _api_config(row):
         "sheet_ids": _load(row["sheet_ids_json"], "[]"),
         "joins": _load(row["joins_json"], "[]"),
         "sheet_fields": _load(row["sheet_fields_json"], "{}"),
+        "output_tree": _load(row["output_tree_json"] if "output_tree_json" in row.keys() else "", "{}") or _default_output_tree(),
         "param_mapping": _load(row["param_mapping_json"], "[]"),
         "body_mapping": _load(row["body_mapping_json"], "[]"),
         "query_config_v2": _load(row["query_config_v2"] if "query_config_v2" in row.keys() else "{}", "{}"),
@@ -45,6 +94,7 @@ def _number(value, default, low, high):
 def _payload_config(data):
     def dumps(v):
         return json.dumps(v if isinstance(v, list) else [], ensure_ascii=False)
+    tree = _sanitize_output_tree(data.get("output_tree"))
     return {
         "endpoint": str(data.get("endpoint") or "").strip(),
         "method": str(data.get("method") or "GET").upper(),
@@ -54,6 +104,7 @@ def _payload_config(data):
         "sheet_ids_json": dumps(data.get("sheet_ids")),
         "joins_json": dumps(data.get("joins")),
         "sheet_fields_json": json.dumps(data.get("sheet_fields") if isinstance(data.get("sheet_fields"), dict) else {}, ensure_ascii=False),
+        "output_tree_json": json.dumps(tree, ensure_ascii=False) if tree else "",
         "param_mapping_json": dumps(data.get("param_mapping")),
         "body_mapping_json": dumps(data.get("body_mapping")),
         "query_config_v2": _query_config(data, None),
@@ -100,8 +151,16 @@ def _query_config(data, user_id):
                     "key": str(field_name), "enabled": bool(enabled),
                 })
     filters = []
-    for location in ("params", "body"):
-        items = (data.get(location + "_mapping") or [])
+    mapping_keys = {
+        "params": ("param_mapping", "params_mapping"),
+        "body": ("body_mapping",),
+    }
+    for location, keys in mapping_keys.items():
+        items = []
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                items.extend(value)
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -210,7 +269,10 @@ def trans_api_create():
     if gate:
         return gate
     data = request.get_json(silent=True) or {}
-    cfg = _payload_config(data)
+    try:
+        cfg = _payload_config(data)
+    except ValueError as exc:
+        return error(str(exc), 400)
     err = _validate(cfg, session["uid"])
     if err:
         return error(err, 400)
@@ -219,7 +281,7 @@ def trans_api_create():
         return error("Endpoint + method already exists", 400)
     api_id = new_id()
     cols = ("endpoint", "method", "auth", "encoding", "note", "sheet_ids_json", "joins_json",
-            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
+            "sheet_fields_json", "output_tree_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
             "timeout", "retry", "rate_limit")
     execute(
         "INSERT INTO trans_apis (id, user_id, " + ", ".join(cols) + ", enabled, created_at) VALUES (" +
@@ -238,7 +300,10 @@ def trans_api_update(api_id):
     if not row:
         return error("API not found", 404)
     data = request.get_json(silent=True) or {}
-    cfg = _payload_config(data)
+    try:
+        cfg = _payload_config(data)
+    except ValueError as exc:
+        return error(str(exc), 400)
     err = _validate(cfg, session["uid"])
     if err:
         return error(err, 400)
@@ -246,7 +311,7 @@ def trans_api_update(api_id):
            (session["uid"], cfg["endpoint"], cfg["method"], api_id)):
         return error("Endpoint + method already exists", 400)
     cols = ("endpoint", "method", "auth", "encoding", "note", "sheet_ids_json", "joins_json",
-            "sheet_fields_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
+            "sheet_fields_json", "output_tree_json", "param_mapping_json", "body_mapping_json", "query_config_v2",
             "timeout", "retry", "rate_limit")
     execute("UPDATE trans_apis SET " + ", ".join(f"{c}=?" for c in cols) + " WHERE id=? AND user_id=?",
             (*[cfg[c] for c in cols], api_id, session["uid"]))

@@ -108,11 +108,10 @@ def resolve_root(data, path):
 
 
 def to_sqlite_json_path(path):
-    """Convert a canonical path to a SQLite json_extract path."""
-    expr = "$"
-    for token in path_tokens(path):
-        if isinstance(token, int):
-            expr += f"[{token}]"
-        else:
-            expr += '."' + str(token).replace('"', '""') + '"'
-    return expr
+    """Convert a field key to a SQLite json_extract path.
+
+    Data rows store flat keys such as ``result.prov``. The whole key is one
+    literal JSON object member, so dots and brackets are never path syntax.
+    """
+    key = str(path) if path is not None else ""
+    return '$."' + key.replace('"', '""') + '"'

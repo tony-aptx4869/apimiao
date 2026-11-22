@@ -39,6 +39,17 @@
 </div>
 
 <div class="panel-card">
+<h2>返回数据树</h2>
+<p class="hint">把上方数据表的字段拖入对象/数组节点，构建 TRANS 返回结构。拖动节点可重新排序，也可移入对象或数组容器。</p>
+<div class="output-tree-toolbar">
+  <button type="button" class="btn btn-outline" id="outputAddObject">添加对象</button>
+  <button type="button" class="btn btn-outline" id="outputAddArray">添加数组</button>
+  <button type="button" class="btn btn-outline" id="outputReset">清空/重置为默认根节点</button>
+</div>
+<div id="outputTree" class="output-tree"></div>
+</div>
+
+<div class="panel-card">
 <h2>{{ t('trans.section.advanced') }}</h2>
 <div class="form-row">
   <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.timeout|default(10) }}"></label>

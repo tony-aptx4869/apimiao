@@ -12,6 +12,30 @@ let mappings = {
 let joins = (INIT.joins || []).slice();
 let sheetMeta = {};
 
+const OUTPUT_NODE_TYPES = ['object', 'array', 'field'];
+function genNodeId(){ return 'node-' + Math.random().toString(36).slice(2,10) + Date.now().toString(36).slice(-4); }
+function defaultOutputTree(){ return { id: genNodeId(), type: 'object', name: 'root', key: '', field_id: '', children: [] }; }
+function normalizeOutputNode(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  const type = OUTPUT_NODE_TYPES.includes(raw.type) ? raw.type : 'field';
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : genNodeId(),
+    type: type,
+    name: typeof raw.name === 'string' ? raw.name : '',
+    key: typeof raw.key === 'string' ? raw.key : '',
+    field_id: typeof raw.field_id === 'string' ? raw.field_id : '',
+    children: type === 'field' ? [] : (Array.isArray(raw.children) ? raw.children.map(normalizeOutputNode).filter(Boolean) : [])
+  };
+}
+function normalizeOutputTree(tree){
+  if(!tree || typeof tree !== 'object' || tree.type !== 'object') return defaultOutputTree();
+  const root = normalizeOutputNode(tree);
+  root.type = 'object';
+  root.field_id = '';
+  return root;
+}
+let outputTree = normalizeOutputTree(INIT.output_tree);
+
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function feedback(msg){
@@ -56,6 +80,7 @@ function normalizeSheets(sheets){
   }).filter(j=>j.left_field_id&&j.right_field_id);
   renderSheetViews();
   renderTargets();
+  renderOutputTree();
 }
 
 function findField(sheetId, idOrKey){
@@ -157,6 +182,164 @@ function renderTargets(){
   });
 }
 
+// ---- 返回数据树（output_tree）----
+const OUTPUT_NODE_MIME = 'application/x-trans-output-node';
+
+function findFieldKeyById(fieldId){
+  if(!fieldId) return '';
+  for(const sid in sheetMeta){
+    const f=((sheetMeta[sid]||{}).fields||[]).find(f=>f.id===fieldId);
+    if(f) return f.key;
+  }
+  return '';
+}
+
+function findOutputNode(id, node=outputTree){
+  if(!node) return null;
+  if(node.id===id) return node;
+  for(const child of (node.children||[])){
+    const found=findOutputNode(id,child);
+    if(found) return found;
+  }
+  return null;
+}
+
+function findOutputParentList(id, node=outputTree){
+  if(!node || !Array.isArray(node.children)) return null;
+  if(node.children.some(c=>c.id===id)) return node.children;
+  for(const child of node.children){
+    const found=findOutputParentList(id,child);
+    if(found) return found;
+  }
+  return null;
+}
+
+function isOutputDescendant(ancestorId, maybeDescendantId){
+  const ancestor=findOutputNode(ancestorId);
+  if(!ancestor) return false;
+  const stack=(ancestor.children||[]).slice();
+  while(stack.length){
+    const n=stack.pop();
+    if(n.id===maybeDescendantId) return true;
+    stack.push(...(n.children||[]));
+  }
+  return false;
+}
+
+function detachOutputNode(id){
+  const list=findOutputParentList(id);
+  if(!list) return null;
+  const idx=list.findIndex(n=>n.id===id);
+  return idx<0 ? null : list.splice(idx,1)[0];
+}
+
+function insertOutputNode(node, targetId, mode){
+  if(mode==='append'){
+    const target=findOutputNode(targetId);
+    if(!target || target.type==='field') outputTree.children.push(node);
+    else target.children.push(node);
+    return;
+  }
+  const list=findOutputParentList(targetId);
+  if(!list){ outputTree.children.push(node); return; }
+  const idx=list.findIndex(n=>n.id===targetId);
+  list.splice(idx<0?list.length:idx,0,node);
+}
+
+function renderOutputNode(node){
+  const isContainer = node.type!=='field';
+  const typeLabel = node.type==='object' ? '对象' : node.type==='array' ? '数组' : '字段';
+  const source = node.type==='field'
+    ? `<span class="output-node-source">来源 ${esc(findFieldKeyById(node.field_id)||node.field_id||'未绑定')}</span>` : '';
+  const children = isContainer
+    ? `<div class="output-node-children">${(node.children||[]).map(renderOutputNode).join('')}</div>` : '';
+  const delBtn = node.id===outputTree.id ? '' : '<button type="button" class="btn btn-xs btn-danger output-node-del" title="删除节点">&times;</button>';
+  return `<div class="output-node" data-id="${esc(node.id)}" draggable="true">
+    <div class="output-node-row">
+      <span class="output-node-type type-${node.type}">${typeLabel}</span>
+      <input class="output-node-name" value="${esc(node.name)}" placeholder="显示名称">
+      <input class="output-node-key" value="${esc(node.key)}" placeholder="输出 key">
+      ${source}
+      ${delBtn}
+    </div>
+    ${children}
+  </div>`;
+}
+
+function handleOutputDrop(e, targetId, mode){
+  const nodeId=e.dataTransfer.getData(OUTPUT_NODE_MIME);
+  if(nodeId){
+    if(nodeId===targetId) return;
+    if(mode==='append' && isOutputDescendant(targetId,nodeId)) return;
+    if(mode==='before' && isOutputDescendant(nodeId,targetId)) return;
+    const moving=detachOutputNode(nodeId);
+    if(!moving) return;
+    insertOutputNode(moving,targetId,mode);
+    renderOutputTree();
+    return;
+  }
+  let src;
+  try { src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); } catch(_) { return; }
+  if(!src.field_id) return;
+  const fieldNode={ id:genNodeId(), type:'field', name:src.field||'', key:src.field||'', field_id:src.field_id, children:[] };
+  insertOutputNode(fieldNode,targetId,mode);
+  renderOutputTree();
+}
+
+function bindOutputTreeEvents(box){
+  box.querySelectorAll('.output-node').forEach(el=>{
+    const id=el.dataset.id;
+    el.ondragstart=e=>{
+      e.stopPropagation();
+      e.dataTransfer.setData(OUTPUT_NODE_MIME,id);
+      e.dataTransfer.setData('text/plain','');
+      e.dataTransfer.effectAllowed='move';
+      el.classList.add('dragging');
+    };
+    el.ondragend=()=>el.classList.remove('dragging');
+    el.ondragover=e=>{ e.preventDefault(); e.stopPropagation(); el.classList.add('drop-target'); };
+    el.ondragleave=()=>el.classList.remove('drop-target');
+    el.ondrop=e=>{
+      e.preventDefault(); e.stopPropagation(); el.classList.remove('drop-target');
+      handleOutputDrop(e,id,'before');
+    };
+  });
+  box.querySelectorAll('.output-node-children').forEach(el=>{
+    if(el.parentElement) el.dataset.parent=el.parentElement.dataset.id;
+    el.ondragover=e=>{ e.preventDefault(); e.stopPropagation(); el.classList.add('over'); };
+    el.ondragleave=()=>el.classList.remove('over');
+    el.ondrop=e=>{
+      e.preventDefault(); e.stopPropagation(); el.classList.remove('over');
+      handleOutputDrop(e,el.dataset.parent,'append');
+    };
+  });
+  box.querySelectorAll('.output-node-del').forEach(b=>b.onclick=()=>{
+    detachOutputNode(b.closest('.output-node').dataset.id);
+    renderOutputTree();
+  });
+  box.querySelectorAll('.output-node-name').forEach(inp=>inp.onchange=()=>{
+    const n=findOutputNode(inp.closest('.output-node').dataset.id);
+    if(n) n.name=inp.value.trim();
+  });
+  box.querySelectorAll('.output-node-key').forEach(inp=>inp.onchange=()=>{
+    const n=findOutputNode(inp.closest('.output-node').dataset.id);
+    if(n) n.key=inp.value.trim();
+  });
+}
+
+function renderOutputTree(){
+  const box=$('outputTree');
+  if(!box) return;
+  box.innerHTML=renderOutputNode(outputTree);
+  box.ondragover=e=>e.preventDefault();
+  box.ondrop=e=>{ e.preventDefault(); handleOutputDrop(e,outputTree.id,'append'); };
+  bindOutputTreeEvents(box);
+}
+
+$('outputAddObject').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'object',name:'',key:'',children:[]}); renderOutputTree(); };
+$('outputAddArray').onclick=()=>{ outputTree.children.push({id:genNodeId(),type:'array',name:'',key:'',children:[]}); renderOutputTree(); };
+$('outputReset').onclick=()=>{ outputTree=defaultOutputTree(); renderOutputTree(); };
+
 $('saveBtn').onclick=async()=>{
   const payload={
     id:USER_ID||undefined,
@@ -164,6 +347,7 @@ $('saveBtn').onclick=async()=>{
     encoding:'UTF-8', auth:$('auth').value, note:$('note').value.trim(),
     sheet_ids:selectedSheets, joins:joins, sheet_fields:sheetFields,
     param_mapping:mappings.params, body_mapping:mappings.body,
+    output_tree:outputTree,
     timeout:parseInt($('timeout').value)||10, retry:parseInt($('retry').value)||0,
     rate_limit:parseInt($('rate_limit').value)||0
   };
@@ -173,3 +357,4 @@ $('saveBtn').onclick=async()=>{
 };
 
 normalizeSheets(availableSheets);
+renderOutputTree();
