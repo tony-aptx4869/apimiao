@@ -39,8 +39,7 @@
   document.getElementById('discoverBtn').onclick=async()=>{
     showError('');
     const r=await apiFetch('/api/data-sheets/discover-fields','POST',{
-      sample_json:document.getElementById('sampleJson').value,
-      path:document.getElementById('extractPath').value
+      sample_json:document.getElementById('sampleJson').value
     });
     if(!r.ok){showError(r.error||'Discovery failed');return;}
     fields=r.fields||[];

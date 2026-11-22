@@ -1,7 +1,7 @@
 import json
 
 from ..db import get_db, new_id, utcnow
-from ..json_path import resolve_root
+from ..json_path import classify_json_type, iter_terminal_paths, path_label
 from .models import FieldDraft, SheetDraft
 
 
@@ -14,33 +14,22 @@ def _json(value, default):
 
 
 def _json_type(value):
-    if isinstance(value, bool):
-        return "boolean"
-    if isinstance(value, (int, float)):
-        return "number"
-    if isinstance(value, dict):
-        return "object"
-    if isinstance(value, list):
-        return "array"
-    if value is None:
-        return "null"
-    return "string"
+    return classify_json_type(value)
 
 
-def discover_fields(sample_json, path):
-    """Return scalar leaf fields under the resolved JSON node."""
+def discover_fields(sample_json):
+    """Return every terminal JSON path found in the sample response."""
     try:
         sample = json.loads(sample_json)
     except (TypeError, ValueError):
         raise ValueError("Sample JSON is invalid")
-    root = resolve_root(sample, path)
-    if not isinstance(root, dict):
-        raise ValueError("Resolved node must be a JSON object")
     fields = []
-    for index, (key, value) in enumerate(root.items()):
-        if isinstance(value, (dict, list)):
+    for index, (key, value) in enumerate(iter_terminal_paths(sample)):
+        if not key:
             continue
-        fields.append(FieldDraft(key=str(key), label=str(key), json_type=_json_type(value), order=index))
+        fields.append(FieldDraft(
+            key=key, label=path_label(key), json_type=_json_type(value), order=index
+        ))
     return fields
 
 

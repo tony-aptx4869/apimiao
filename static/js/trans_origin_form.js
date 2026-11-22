@@ -197,8 +197,7 @@ function collectPayload(){
     frequency:$('frequency').value,
     days:[...document.querySelectorAll('.day-check:checked')].map(c=>parseInt(c.value)),
     times:collectTimes(),
-    sheet_id:$('sheet_id')?.value||'',
-    result_path:$('result_path')?.value.trim()||'result'
+    sheet_id:$('sheet_id')?.value||''
   };
 }
 
@@ -210,18 +209,24 @@ $('fetchDataBtn').onclick=async()=>{
     const out=$('fetchResult');
     if(!r.ok){ out.innerHTML=`<div class="alert alert-error">${esc(r.error)}</div>`; return; }
     if(!r.success){ out.innerHTML=`<div class="alert alert-warning">HTTP ${r.status}：${esc(r.biz_error||'业务错误')}</div>`; }
+    const drift=r.drift||[];
+    if(drift.length){
+      out.insertAdjacentHTML('afterbegin',`<div class="alert alert-warning">Upstream JSON drift: ${esc(drift.map(d=>d.path).join(', '))}</div>`);
+    }
     fetchFields=r.fields||[];
-    renderFields(r.data);
+    renderFields(r.data,drift);
   } finally { btn.disabled=false; btn.textContent='Fetch Data'; }
 };
-function renderFields(data){
+function renderFields(data,drift){
   const box=$('sheetFields')||$('fetchResult');
   if(!box) return;
+  const driftPaths=new Set((drift||[]).map(d=>d.path));
   const rows=(fieldConfig||[]).slice().sort((a,b)=>(a.order||0)-(b.order||0));
   box.innerHTML=rows.length?rows.map(f=>{
     const val=data?.[f.name];
+    const state=driftPaths.has(f.name)?'drift':(f.enabled?'enabled':'disabled');
     return `<div class="field-pill" data-field="${esc(f.name)}">
-      <div class="field-pill-text"><b>${esc(f.name)}</b><span>${esc(f.enabled?'enabled':'disabled')}${val===undefined?'':' · '+String(val).slice(0,40)}</span></div>
+      <div class="field-pill-text"><b>${esc(f.name)}</b><span>${esc(state)}${val===undefined?'':' · '+String(val).slice(0,40)}</span></div>
     </div>`;
   }).join(''):'<div class="hint">Choose a Data Sheet with fields.</div>';
 }
@@ -237,6 +242,9 @@ $('saveBtn').onclick=async()=>{
     prog.textContent=`${r.total||0} 项，成功 ${(r.total||0)-(r.failed||0)}，失败 ${r.failed||0}`;
     if(r.errors&&r.errors.length){
       log.innerHTML=r.errors.map(e=>`<div class="log-err">${esc(JSON.stringify(e.params))} → ${esc(e.error)}</div>`).join('');
+    }
+    if(r.warnings&&r.warnings.length){
+      log.innerHTML+=r.warnings.map(w=>`<div class="log-warn">${esc(JSON.stringify(w.params))} → ${esc(w.error)}</div>`).join('');
     }
     if(r.saved){
       $('forceSaveBtn').style.display='none';

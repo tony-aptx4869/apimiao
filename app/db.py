@@ -16,6 +16,7 @@ MIGRATIONS_DIR = PROJECT_ROOT / "migrations"
 TRANS_REWRITE_VERSION = "001_trans_rewrite"
 TRANS_HARDENING_VERSION = "002_trans_hardening"
 TRANS_CLEANUP_VERSION = "003_trans_cleanup"
+TERMINAL_FIELDS_VERSION = "004_terminal_fields"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -580,6 +581,77 @@ def apply_trans_cleanup_migration(conn):
     return report
 
 
+def apply_terminal_fields_migration(conn):
+    """Convert simple legacy field names to full terminal paths."""
+    report = {"version": TERMINAL_FIELDS_VERSION, "fields_renamed": 0, "rows_remapped": 0}
+    applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version = ?", (TERMINAL_FIELDS_VERSION,)
+    ).fetchone()
+    if applied:
+        report["applied"] = False
+        return report
+
+    origins = conn.execute(
+        "SELECT sheet_id, result_path FROM trans_origins "
+        "WHERE sheet_id != '' AND result_path != ''"
+    ).fetchall()
+    prefixes = {}
+    for origin in origins:
+        prefixes.setdefault(origin["sheet_id"], str(origin["result_path"]).strip().strip("."))
+
+    for sheet_id, prefix in prefixes.items():
+        mapping = {}
+        fields = conn.execute(
+            "SELECT id, key FROM sheet_fields WHERE sheet_id = ?", (sheet_id,)
+        ).fetchall()
+        for field in fields:
+            old_key = str(field["key"] or "")
+            if "." in old_key or "[" in old_key:
+                continue
+            new_key = f"{prefix}.{old_key}" if prefix else old_key
+            suffix = 1
+            while conn.execute(
+                "SELECT 1 FROM sheet_fields WHERE sheet_id = ? AND key = ? AND id != ?",
+                (sheet_id, new_key, field["id"]),
+            ).fetchone():
+                suffix += 1
+                new_key = f"{prefix}.{old_key}_{suffix}" if prefix else f"{old_key}_{suffix}"
+            if new_key == old_key:
+                continue
+            conn.execute("UPDATE sheet_fields SET key = ? WHERE id = ?", (new_key, field["id"]))
+            mapping[old_key] = new_key
+            report["fields_renamed"] += 1
+        if not mapping:
+            continue
+        for row in conn.execute("SELECT id, data_json FROM data_rows WHERE sheet_id = ?", (sheet_id,)):
+            try:
+                data = json.loads(row["data_json"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            changed = False
+            for old_key, new_key in mapping.items():
+                if old_key in data:
+                    data[new_key] = data.pop(old_key)
+                    changed = True
+            if changed:
+                conn.execute(
+                    "UPDATE data_rows SET data_json = ? WHERE id = ?",
+                    (json.dumps(data, ensure_ascii=False), row["id"]),
+                )
+                report["rows_remapped"] += 1
+
+    conn.execute("UPDATE trans_origins SET result_path = '' WHERE result_path != ''")
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (TERMINAL_FIELDS_VERSION, utcnow()),
+    )
+    conn.commit()
+    report["applied"] = True
+    return report
+
+
 def prune_trans_retention():
     """Delete old snapshots and logs when retention days are configured."""
     from config import TRANS_LOG_RETENTION_DAYS, TRANS_ROW_RETENTION_DAYS
@@ -629,6 +701,7 @@ def migrate_database(path=None, dry_run=False):
         report = apply_trans_rewrite_migration(conn)
         report["hardening"] = apply_trans_hardening_migration(conn)
         report["cleanup"] = apply_trans_cleanup_migration(conn)
+        report["terminal_fields"] = apply_terminal_fields_migration(conn)
     finally:
         conn.close()
     report["dry_run"] = dry_run
@@ -656,6 +729,7 @@ def init_db(seed_admin=True):
         apply_trans_rewrite_migration(conn)
         apply_trans_hardening_migration(conn)
         apply_trans_cleanup_migration(conn)
+        apply_terminal_fields_migration(conn)
         conn.commit()
         if seed_admin:
             row = conn.execute("SELECT 1 FROM users WHERE id = ?", (ADMIN_ID,)).fetchone()

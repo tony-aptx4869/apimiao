@@ -284,6 +284,7 @@ label.full input { width: 100%; }
 .progress { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
 .precheck-log { max-height: 220px; overflow: auto; font-size: 12px; }
 .log-err { background: #fef2f2; color: #b91c1c; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; }
+.log-warn { background: #fffbeb; color: #b45309; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; }
 /* 表单类 panel-card：所有区块统一 16px 垂直间距 */
 .panel-card > label, .panel-card > .form-row, .panel-card > .kv-section, .panel-card > .form-grid, .panel-card > .day-box, .panel-card > .fetch-area, .panel-card > .sheet-views, .panel-card > .hint { margin: 0 0 16px; }
 .panel-card > label:last-child, .panel-card > .form-row:last-child, .panel-card > .kv-section:last-child, .panel-card > .form-grid:last-child, .panel-card > .day-box:last-child, .panel-card > .fetch-area:last-child, .panel-card > .sheet-views:last-child, .panel-card > .hint:last-child { margin-bottom: 0; }

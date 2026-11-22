@@ -1,10 +1,7 @@
 import json
 
 from ..db import all_rows
-
-
-def _json_path(key):
-    return '$."' + str(key).replace('"', '""') + '"'
+from ..json_path import to_sqlite_json_path
 
 
 def latest_rows(sheet_id, filters=None, dedupe=True, limit=1):
@@ -14,7 +11,7 @@ def latest_rows(sheet_id, filters=None, dedupe=True, limit=1):
     args = [sheet_id]
     for key, value in filters.items():
         where.append("json_extract(data_json, ?) = ?")
-        args.extend([_json_path(key), str(value)])
+        args.extend([to_sqlite_json_path(key), str(value)])
     filter_sql = (" AND " + " AND ".join(where)) if where else ""
 
     if dedupe:

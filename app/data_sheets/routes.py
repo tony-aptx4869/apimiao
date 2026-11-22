@@ -63,7 +63,7 @@ def api_discover_fields():
         return gate
     data = request.get_json(silent=True) or {}
     try:
-        fields = service.discover_fields(data.get("sample_json", ""), data.get("path", ""))
+        fields = service.discover_fields(data.get("sample_json", ""))
     except ValueError as exc:
         return error(str(exc), 400)
     return ok(fields=[_as_dict(field) for field in fields])

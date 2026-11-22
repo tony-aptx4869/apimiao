@@ -65,7 +65,7 @@ def _payload_config(data):
         "frequency": str(data.get("frequency") or "DAY"),
         "days_json": dumps(data.get("days")), "times_json": dumps(data.get("times")),
         "sheet_id": str(data.get("sheet_id") or "").strip(),
-        "result_path": str(data.get("result_path") or "result").strip(),
+        "result_path": "",
     }
 
 
@@ -108,7 +108,7 @@ def _sheet_field_config(user_id, sheet_id):
     if not sheet:
         return []
     return [
-        {"name": field["key"], "enabled": field["enabled"], "order": field["order"]}
+        {"name": field["key"], "json_type": field["json_type"], "enabled": field["enabled"], "order": field["order"]}
         for field in sheet["fields"]
     ]
 
@@ -187,7 +187,7 @@ def trans_origin_precheck():
 
     # 预检：只采集不落库（dry-run），失败时数据库完全不留痕迹
     collected = {"success": False, "total": 0, "failed": 0, "errors": [err] if err else [],
-                 "items": [], "payloads": [], "field_names": []}
+                 "warnings": [], "items": [], "payloads": [], "field_names": []}
     if not err:
         origin = {"id": origin_id, "user_id": session["uid"], **cfg}
         collected = to.collect_batch(origin, cfg)
@@ -196,7 +196,8 @@ def trans_origin_precheck():
         # 失败：不保存配置、不写数据，让前端展示错误并阻止保存
         return ok(saved=False, verified=0, id="", success=False,
                   total=collected["total"], failed=collected["failed"],
-                  errors=collected["errors"], batch_id="", sheet_id="")
+                  errors=collected["errors"], warnings=collected["warnings"],
+                  batch_id="", sheet_id="")
 
     # 全成功（或 force_save 应急）：保存配置
     verified = 1 if collected["success"] else 0
@@ -207,7 +208,7 @@ def trans_origin_precheck():
         batch_info = to.commit_batch(origin, cfg, collected, triggered_by="PRECHECK")
     return ok(saved=True, verified=verified, id=origin_id, success=collected["success"],
               total=collected["total"], failed=collected["failed"],
-              errors=collected["errors"], **batch_info)
+              errors=collected["errors"], warnings=collected["warnings"], **batch_info)
 
 
 def _save_origin(origin_id, user_id, cfg, verified, is_new):

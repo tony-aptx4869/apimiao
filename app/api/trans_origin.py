@@ -12,7 +12,7 @@ import httpx
 
 from config import CARTESIAN_LIMIT
 from ..db import all_rows, canonical_params, get_db, new_id, one, utcnow
-from ..json_path import resolve_root
+from ..json_path import classify_json_type, iter_terminal_paths, resolve_root
 from ..utils import PLACEHOLDER_RE, merge_url_params
 
 
@@ -223,46 +223,48 @@ def do_request(cfg, values=None):
 
 
 # ---------------- 数据字段与存储 ----------------
-def extract_fields(body_text, fields_config=None):
-    """从响应体解析字段。fields_config 为 [{name, enabled, order}]。
-
-    返回 (field_names_in_order, data_dict)。fields_config 为空时取全部顶层字段。
-    """
-    try:
-        data = json.loads(body_text or "{}")
-    except (ValueError, TypeError):
-        data = {}
-    if not isinstance(data, dict):
-        data = {}
-    if not fields_config:
-        return list(data.keys()), data
-    ordered = sorted(fields_config, key=lambda f: f.get("order", 0))
-    names = [f["name"] for f in ordered if f.get("enabled", True) and f["name"] in data]
-    # 只保留开启且存在的字段，按用户设定顺序构造 payload
-    payload = {name: data[name] for name in names}
-    return names, payload
-
-
 def load_sheet_fields(sheet_id):
     """Load the authoritative field schema owned by Data Sheets."""
     rows = all_rows(
-        "SELECT key AS name, enabled, ordinal AS `order` FROM sheet_fields "
+        "SELECT key AS name, json_type, enabled, ordinal AS `order` FROM sheet_fields "
         "WHERE sheet_id = ? ORDER BY ordinal, key",
         (sheet_id,),
     )
     return [dict(row) for row in rows]
 
 
-def extract_payload(body_text, result_path, fields_cfg=None):
-    """Resolve the configured result node before extracting fields."""
+def extract_payload(body_text, fields_cfg=None):
+    """Extract configured paths and report any structural drift."""
     try:
         data = json.loads(body_text or "{}")
     except (ValueError, TypeError):
-        data = {}
-    root = resolve_root(data, result_path)
-    if not isinstance(root, dict):
-        raise ValueError("Resolved result node must be a JSON object")
-    return extract_fields(json.dumps(root, ensure_ascii=False), fields_cfg)
+        raise ValueError("Response body is not valid JSON")
+    if not isinstance(data, dict):
+        raise ValueError("Response root must be a JSON object")
+    if not fields_cfg:
+        pairs = [(key, value) for key, value in iter_terminal_paths(data) if key]
+        return [key for key, _ in pairs], dict(pairs), []
+    ordered = sorted(fields_cfg, key=lambda f: f.get("order", 0))
+    names, payload, drift = [], {}, []
+    for field in ordered:
+        if not field.get("enabled", True):
+            continue
+        path = str(field.get("name") or "")
+        if not path:
+            continue
+        try:
+            value = resolve_root(data, path)
+        except (ValueError, TypeError):
+            drift.append({"path": path, "reason": "missing"})
+            continue
+        expected = str(field.get("json_type") or "")
+        actual = classify_json_type(value)
+        if expected and actual != expected:
+            drift.append({"path": path, "reason": "type", "expected": expected, "actual": actual})
+            continue
+        payload[path] = value
+        names.append(path)
+    return names, payload, drift
 
 
 # ---------------- 完整批次采集 ----------------
@@ -277,15 +279,14 @@ def collect_batch(origin, cfg_override=None):
     cfg = dict(cfg_override) if cfg_override else dict(origin)
     pairs, err = normalize_pairs(json.loads(cfg.get("params_json", "[]")))
     if err:
-        return {"success": False, "total": 0, "failed": 0, "errors": [err], "items": [], "payloads": [], "field_names": []}
+        return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
     combos, err = expand_combinations(pairs)
     if err:
-        return {"success": False, "total": 0, "failed": 0, "errors": [err], "items": [], "payloads": [], "field_names": []}
+        return {"success": False, "total": 0, "failed": 0, "errors": [err], "warnings": [], "items": [], "payloads": [], "field_names": []}
 
     fields_cfg = load_sheet_fields(origin.get("sheet_id") or cfg.get("sheet_id") or "")
-    result_path = cfg.get("result_path") or origin.get("result_path") or ""
     interval = float(cfg.get("request_interval", 0) or 0)
-    ok_count, fail_count, errors, items, payloads = 0, 0, [], [], []
+    ok_count, fail_count, errors, warnings, items, payloads = 0, 0, [], [], [], []
     field_names = []
 
     for idx, combo in enumerate(combos):
@@ -295,8 +296,7 @@ def collect_batch(origin, cfg_override=None):
             success = False
         else:
             try:
-                resolved = resolve_root(json.loads(body or "{}"), result_path)
-                success, biz_err = judge_success(status, json.dumps(resolved, ensure_ascii=False))
+                success, biz_err = judge_success(status, body or "")
             except (ValueError, TypeError) as exc:
                 success, biz_err = False, str(exc)
         err_msg = net_err or biz_err
@@ -305,15 +305,23 @@ def collect_batch(origin, cfg_override=None):
         if success:
             ok_count += 1
             try:
-                names, payload = extract_payload(body, result_path, fields_cfg)
+                names, payload, drift = extract_payload(body, fields_cfg)
             except (ValueError, TypeError) as exc:
                 success = False
                 fail_count += 1
                 errors.append({"params": combo, "error": str(exc), "status": status})
                 continue
-            if not field_names:
-                field_names = names
-            payloads.append({"combo": combo, "data": payload})
+            if drift:
+                paths = ", ".join(item["path"] for item in drift)
+                warning = {"params": combo, "error": f"Upstream JSON drift: {paths}",
+                           "status": status, "drift": drift}
+                warnings.append(warning)
+                items[-1]["error"] = warning["error"]
+                items[-1]["drift"] = drift
+            if payload:
+                if not field_names:
+                    field_names = names
+                payloads.append({"combo": combo, "data": payload})
         else:
             fail_count += 1
             errors.append({"params": combo, "error": err_msg, "status": status})
@@ -321,7 +329,8 @@ def collect_batch(origin, cfg_override=None):
             time.sleep(interval)
 
     return {"success": fail_count == 0, "total": len(combos), "failed": fail_count,
-            "errors": errors, "items": items, "payloads": payloads, "field_names": field_names}
+            "errors": errors, "warnings": warnings, "items": items,
+            "payloads": payloads, "field_names": field_names}
 
 
 def commit_batch(origin, cfg, collected, triggered_by="PRECHECK", batch_key=""):
@@ -385,18 +394,17 @@ def fetch_preview(cfg):
         values[p["key"]] = p["items"][0] if p["is_list"] else p["value"]
     status, headers, cookies, body, duration, net_err = do_request(cfg, values)
     try:
-        resolved = resolve_root(json.loads(body or "{}"), cfg.get("result_path", ""))
-        success, biz_err = judge_success(status, json.dumps(resolved, ensure_ascii=False))
+        success, biz_err = judge_success(status, body or "")
     except (ValueError, TypeError) as exc:
         success, biz_err = False, str(exc)
     if net_err:
         return {"ok": False, "error": net_err, "status": status}
     try:
-        names, data = extract_payload(body, cfg.get("result_path", ""), cfg.get("fields"))
+        names, data, drift = extract_payload(body, cfg.get("fields"))
     except (ValueError, TypeError) as exc:
         return {"ok": False, "error": str(exc), "status": status}
     return {
         "ok": True, "success": success, "biz_error": biz_err,
-        "status": status, "fields": names, "data": data,
+        "status": status, "fields": names, "data": data, "drift": drift,
         "headers": headers, "cookies": cookies, "duration_ms": duration,
     }
