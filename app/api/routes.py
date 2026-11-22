@@ -7,7 +7,7 @@ from flask import redirect, render_template, request, session, url_for
 
 from config import endpoint_prefix
 from ..db import api_config, all_rows, execute, new_id, one, save_api_config, utcnow
-from ..utils import error, ok, placeholders, require_login, valid_endpoint
+from ..utils import error, ok, placeholders, require_login, valid_endpoint, merge_url_params
 from . import bp
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -27,6 +27,17 @@ def _clean_pairs(data, key):
         if k:
             out.append({"key": k, "value": v})
     return out
+
+
+def _as_bool(value, default=True):
+    """兼容前端下拉传来的 true/false、'1'/'0'、1/0。"""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 def _validate_payload(data, api_type):
@@ -51,13 +62,15 @@ def _validate_payload(data, api_type):
         "cookies": _clean_pairs(data, "cookies"),
         "body_mode": data.get("body_mode") or "none",
         "body": data.get("body") or "",
-        "body_enabled": bool(data.get("body_enabled", True)),
-        "encoding": data.get("encoding") or "UTF-8",
+        "body_enabled": _as_bool(data.get("body_enabled"), True),
+        "accept_encoding": data.get("accept_encoding") if data.get("accept_encoding") in ("auto", "gzip", "pass") else "auto",
         "timeout": max(1, min(int(data.get("timeout") or 10), 120)),
         "retry": max(0, min(int(data.get("retry") or 0), 5)),
         "rate_limit": max(0, min(int(data.get("rate_limit") or 0), 100000)),
+        "cache_time": max(0, min(float(data.get("cache_time") or 0), 604800)),
+        "cache_unit": data.get("cache_unit") if data.get("cache_unit") in ("min", "sec") else "sec",
         "param_conflict": data.get("param_conflict") or "user",
-        "passthrough": bool(data.get("passthrough", True)),
+        "passthrough": _as_bool(data.get("passthrough"), True),
     }
     if cfg["original_method"] not in METHODS:
         return None, "Invalid Original API Method"
@@ -92,9 +105,7 @@ def api_new():
     gate = require_login()
     if gate:
         return gate
-    api_type = request.args.get("type", "PROXY").upper()
-    if api_type not in ("PROXY", "TRANSMISSION"):
-        api_type = "PROXY"
+    api_type = "PROXY"  # TRANSMISSION 已迁移到独立的 TRANS Origin/User 模块
     # 复制已有 API：用其信息预填创建表单。id 置空 -> 保存时走新建；endpoint 留空因其必须唯一
     copy_from = request.args.get("copy_from", "").strip()
     api, cfg, is_copy = None, {}, False
@@ -128,9 +139,7 @@ def api_create():
     if gate:
         return gate
     data = request.get_json(silent=True) or {}
-    api_type = (data.get("type") or "PROXY").upper()
-    if api_type not in ("PROXY", "TRANSMISSION"):
-        return error("Invalid API type", 400)
+    api_type = "PROXY"  # 仅支持 PROXY，TRANS 走独立模块
     payload, err = _validate_payload(data, api_type)
     if err:
         return error(err, 400)
@@ -140,7 +149,7 @@ def api_create():
     execute(
         "INSERT INTO apis (id, user_id, endpoint, method, type, auth, encoding, note, config, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (api_id, session["uid"], payload["endpoint"], payload["method"], api_type, payload["auth"],
-         payload["config"]["encoding"], payload["note"], json.dumps(payload["config"], ensure_ascii=False), utcnow()),
+         "UTF-8", payload["note"], json.dumps(payload["config"], ensure_ascii=False), utcnow()),
     )
     return ok(id=api_id)
 
@@ -164,7 +173,7 @@ def api_update(api_id):
         return error("Endpoint + method already exists", 400)
     execute(
         "UPDATE apis SET endpoint = ?, method = ?, auth = ?, encoding = ?, note = ?, config = ? WHERE id = ?",
-        (payload["endpoint"], payload["method"], payload["auth"], payload["config"]["encoding"],
+        (payload["endpoint"], payload["method"], payload["auth"], "UTF-8",
          payload["note"], json.dumps(payload["config"], ensure_ascii=False), api_id),
     )
     return ok()
@@ -205,15 +214,29 @@ def api_bulk_delete():
 
 @bp.route("/api/apis/test", methods=["POST"])
 def api_test():
-    """API Test：用占位符键值对真实请求一次源 API，保存键值对供日后复用。"""
+    """API Test：用占位符键值对真实请求一次源 API，保存键值对供日后复用。
+
+    测试请求与真实转发保持一致：应用配置的 Params/Header/Cookie 和 {{o-api-key}}。
+    """
     gate = require_login()
     if gate:
         return gate
+    # 延迟导入，避免 app/api/__init__.py 中 routes 先于 proxy 导入导致循环依赖
+    from .proxy import _fill, _pairs_to_dict
     data = request.get_json(silent=True) or {}
-    url = (data.get("url") or "").strip()
-    method = (data.get("method") or "GET").upper()
-    pairs = data.get("params") or []
+    # 占位符键值对（弹窗里填的）。前端传的字段名是 pairs，兼容旧的 params。
+    pairs = data.get("pairs") or data.get("params") or []
     api_id = data.get("api_id") or ""
+    cfg = data.get("cfg") or {}
+    # 优先用前端传来的当前表单配置；没有则从数据库读取已保存的配置
+    if not cfg and api_id:
+        row = one("SELECT * FROM apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
+        if row:
+            cfg = api_config(row)
+    url = (data.get("url") or cfg.get("original_url") or "").strip()
+    method = (data.get("method") or cfg.get("original_method") or "GET").upper()
+    o_api_key = cfg.get("original_key", "")
+
     for p in pairs:
         key = str(p.get("key") or "").strip()
         if not key:
@@ -223,12 +246,34 @@ def api_test():
             "ON CONFLICT(user_id, api_id, key) DO UPDATE SET value = excluded.value, created_at = excluded.created_at",
             (session["uid"], api_id, key, str(p.get("value") or ""), utcnow()),
         )
-    for k, v in {p.get("key"): p.get("value") for p in pairs}.items():
-        if k:
-            url = url.replace("{{" + str(k) + "}}", str(v or ""))
+
+    # 占位符值：弹窗键值对。URL 与 Params/Header/Cookie 都用它替换。
+    values = {str(p.get("key")): str(p.get("value") or "") for p in pairs if p.get("key")}
     try:
-        with httpx.Client(timeout=10, follow_redirects=True) as client:
-            resp = client.request(method, url)
+        url = _fill(url, values, o_api_key)
+        all_params = _pairs_to_dict(cfg.get("params", []), values, o_api_key)
+        headers = _pairs_to_dict(cfg.get("headers", []), values, o_api_key)
+        cookies = _pairs_to_dict(cfg.get("cookies", []), values, o_api_key)
+        # URL 自带的 query 与配置 Params 合并，防止 httpx 覆盖 URL 里的占位符参数
+        url, all_params = merge_url_params(url, all_params)
+        kwargs = {}
+        if all_params:
+            kwargs["params"] = all_params
+        if headers:
+            kwargs["headers"] = headers
+        if cookies:
+            kwargs["cookies"] = cookies
+        # Body（与 proxy 的 body_mode 处理保持一致）
+        body_mode = cfg.get("body_mode", "none")
+        if body_mode == "json" and cfg.get("body"):
+            kwargs["content"] = _fill(cfg["body"], values, o_api_key).encode("utf-8")
+            if "content-type" not in {k.lower() for k in headers}:
+                kwargs.setdefault("headers", {})["Content-Type"] = "application/json; charset=utf-8"
+        elif body_mode == "text" and cfg.get("body"):
+            kwargs["content"] = _fill(cfg["body"], values, o_api_key).encode("utf-8")
+        timeout = cfg.get("timeout", 10) or 10
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.request(method, url, **kwargs)
         return ok(status=resp.status_code, headers=dict(resp.headers),
                   body=resp.text, cookies=dict(resp.cookies))
     except Exception as exc:
@@ -245,29 +290,3 @@ def api_test_params():
     return ok(params=[dict(r) for r in rows])
 
 
-@bp.route("/api/apis/<api_id>/fetch-now", methods=["POST"])
-def api_fetch_now(api_id):
-    """手动触发一次 Transmission 拉取，便于验证 Data Mapping。"""
-    gate = require_login()
-    if gate:
-        return gate
-    row = one("SELECT 1 FROM apis WHERE id = ? AND user_id = ? AND type = 'TRANSMISSION'", (api_id, session["uid"]))
-    if not row:
-        return error("Transmission API not found", 404)
-    from .transmission import fetch_and_store, current_payload
-    if not fetch_and_store(api_id):
-        return error("Fetch failed", 502)
-    payload, code = current_payload(api_id)
-    return ok(payload=payload, code=code)
-
-
-@bp.route("/api/apis/<api_id>/history")
-def api_history(api_id):
-    gate = require_login()
-    if gate:
-        return gate
-    row = one("SELECT 1 FROM apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
-    if not row:
-        return error("API not found", 404)
-    from .transmission import history
-    return ok(history=history(api_id))

@@ -104,4 +104,13 @@ def endpoint_prefix(api_type):
     return ""
 
 
+# ---------------- general：全站时区 ----------------
+# 用于每日统计分组（图表按"本地日"归集）。库里始终存 UTC，展示/统计时按此时区换算。
+# 值为 IANA 时区名（如 Asia/Shanghai），留空或无效则默认 Asia/Shanghai。
+TIMEZONE = _get("general", "timezone", "Asia/Shanghai").strip() or "Asia/Shanghai"
+
+# ---------------- trans：TRANS 模块 ----------------
+# 列表笛卡尔积组合数上限（0 或负数 = 不限制）。新建/编辑 Origin 保存时与定时采集时都校验。
+CARTESIAN_LIMIT = _int(_get("trans", "cartesian_limit", "10000"), 10000)
+
 DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,121 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('common.edit') if origin and origin.id else t('common.create') }} TRANS Origin API · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('common.edit') if origin and origin.id else t('common.create') }} TRANS Origin API</h1>
+<div id="formError" class="alert alert-error" style="display:none"></div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.general') }}</h2>
+<label class="full">{{ t('trans.original_url') }}<input id="original_url" value="{{ cfg.original_url|default('') }}" placeholder="https://api.example.com/data/{{ '{{uid}}' }}"></label>
+<div class="form-row">
+  <label>{{ t('trans.original_method') }}<select id="original_method">{% for m in ['GET','POST','PUT','PATCH','DELETE'] %}<option {{ 'selected' if cfg.original_method|default('GET') == m }}>{{ m }}</option>{% endfor %}</select></label>
+  <label>API Type<input value="TRANS Origin" disabled></label>
+</div>
+<label class="full">{{ t('trans.original_key') }}<input id="original_key" value="{{ cfg.original_key|default('') }}" placeholder="Original API Key"><span class="hint">{{ t('trans.oapikey_hint') }}</span></label>
+
+<div class="kv-section">
+  <div class="kv-title">{{ t('trans.params') }} <button type="button" class="btn btn-xs btn-outline" data-add="params"><i class="bi bi-plus"></i> {{ t('common.add') }}</button></div>
+  <div id="kv-params" class="kv-box"></div>
+</div>
+<div class="kv-section">
+  <div class="kv-title">{{ t('trans.headers') }} <button type="button" class="btn btn-xs btn-outline" data-add="headers"><i class="bi bi-plus"></i> {{ t('common.add') }}</button></div>
+  <div id="kv-headers" class="kv-box"></div>
+</div>
+<div class="kv-section">
+  <div class="kv-title">{{ t('trans.cookies') }} <button type="button" class="btn btn-xs btn-outline" data-add="cookies"><i class="bi bi-plus"></i> {{ t('common.add') }}</button></div>
+  <div id="kv-cookies" class="kv-box"></div>
+</div>
+<div class="kv-section">
+  <h3>{{ t('trans.body_mode') }}</h3>
+  <div class="body-controls">
+    <select id="body_mode">
+      <option value="none" {{ 'selected' if cfg.body_mode|default('none') == 'none' }}>{{ t('api.body_mode.none') }}</option>
+      <option value="json" {{ 'selected' if cfg.body_mode|default('') == 'json' }}>{{ t('api.body_mode.json') }}</option>
+      <option value="text" {{ 'selected' if cfg.body_mode|default('') == 'text' }}>{{ t('api.body_mode.text') }}</option>
+      <option value="binary" {{ 'selected' if cfg.body_mode|default('') == 'binary' }}>{{ t('api.body_mode.binary') }}</option>
+    </select>
+    <button class="btn" id="formatJsonBtn" type="button">{{ t('api.format') }}</button>
+  </div>
+  <div id="bodyArea">
+    <div class="code-editor" id="codeEditor">
+      <div class="code-gutter" id="codeGutter"></div>
+      <div class="code-layer">
+        <div class="code-active-line" id="codeActiveLine"></div>
+        <textarea id="body" rows="12" spellcheck="false" wrap="off">{{ cfg.body|default('') }}</textarea>
+      </div>
+    </div>
+    <p class="hint" id="bodyHint"></p>
+  </div>
+</div>
+<label class="full">{{ t('api.note') }}<input id="note" value="{{ cfg.note|default('') }}"></label>
+</div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.advanced') }}</h2>
+<div class="form-row">
+  <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.timeout|default(10) }}"></label>
+  <label>{{ t('api.retry') }}<input id="retry" type="number" value="{{ cfg.retry|default(0) }}"></label>
+  <label>{{ t('trans.request_interval') }}<input id="request_interval" type="number" step="0.1" value="{{ cfg.request_interval|default(0) }}"><p class="hint">{{ t('trans.request_interval_hint') }}</p></label>
+</div>
+</div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.schedule') }}</h2>
+<label>{{ t('trans.frequency') }}<select id="frequency">
+  <option value="DAY" {{ 'selected' if cfg.frequency|default('DAY') == 'DAY' }}>{{ t('trans.every_day') }}</option>
+  <option value="WEEK" {{ 'selected' if cfg.frequency|default('') == 'WEEK' }}>{{ t('trans.every_week') }}</option>
+</select></label>
+<div id="dayBox" class="day-box">{% for d in range(7) %}<label class="inline"><input type="checkbox" class="day-check" value="{{ d }}">{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][d] }}</label>{% endfor %}</div>
+<div class="kv-title">{{ t('trans.time') }} <button type="button" class="btn btn-xs btn-outline" id="addTime"><i class="bi bi-plus"></i> {{ t('common.add') }}</button></div>
+<div id="timeList" class="time-list"></div>
+</div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.data') }}</h2>
+<label class="full">{{ t('trans.sheet_name') }}<input id="sheet_name" value="{{ cfg.sheet_name|default('') }}" placeholder="Oil Prices"></label>
+<div id="fetchArea" class="fetch-area">
+  <button type="button" class="btn btn-primary" id="fetchDataBtn">{{ t('trans.fetch_data') }}</button>
+  <div id="fetchResult" class="fetch-result"></div>
+</div>
+</div>
+
+<div class="form-actions">
+  <button class="btn btn-primary" id="saveBtn">{{ t('common.save') }}</button>
+  <a class="btn btn-outline" href="{{ url_for('api.trans_origin_list') }}">{{ t('common.cancel') }}</a>
+</div>
+
+<!-- 列表编辑弹窗 -->
+<div id="listModal" class="modal">
+  <div class="modal-box">
+    <h3>编辑列表</h3>
+    <p class="hint">填写 Python list（如 ['北京','天津']）或分号分隔文本；也可逐项添加。</p>
+    <textarea id="listRaw" rows="3" placeholder="['北京', '天津', '上海']"></textarea>
+    <div id="listItems" class="list-items"></div>
+    <button type="button" class="btn btn-xs btn-outline" id="addListItem"><i class="bi bi-plus"></i> {{ t('common.add') }}</button>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="listApply">{{ t('common.confirm') }}</button>
+      <button type="button" class="btn btn-outline" id="listCancel">{{ t('common.cancel') }}</button>
+    </div>
+  </div>
+</div>
+
+<!-- 预检进度弹窗 -->
+<div id="precheckModal" class="modal">
+  <div class="modal-box">
+    <h3>{{ t('trans.precheck_title') }}</h3>
+    <div id="precheckProgress" class="progress">0 / 0</div>
+    <div id="precheckLog" class="precheck-log"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" id="forceSaveBtn" style="display:none">{{ t('trans.force_save') }}</button>
+      <button class="btn btn-outline" id="precheckClose">{{ t('common.close') }}</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/trans_origin_form.js') }}?v=20261122a"></script>
+<script>
+window.ORIGIN_INIT = {{ (cfg|tojson) if cfg else '{}' }};
+window.ORIGIN_ID = {{ (origin.id|tojson) if origin and origin.id else 'null' }};
+</script>
+{% endblock %}

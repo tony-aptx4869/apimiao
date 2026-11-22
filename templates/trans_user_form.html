@@ -1,0 +1,72 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('common.edit') if api and api.id else t('common.create') }} TRANS User API · APIMiao{% endblock %}
+{% block panel %}
+<h1 class="page-title">{{ t('common.edit') if api and api.id else t('common.create') }} TRANS User API</h1>
+<div id="formError" class="alert alert-error" style="display:none"></div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.general') }}</h2>
+<label class="full">{{ t('api.endpoint') }}<input id="endpoint" value="{{ cfg.endpoint|default('') }}" placeholder="weather/{{ '{{city}}' }}"></label>
+<div class="form-row">
+  <label>{{ t('api.method') }}<select id="method">{% for m in ['GET','POST','PUT','PATCH','DELETE'] %}<option {{ 'selected' if cfg.method|default('GET') == m }}>{{ m }}</option>{% endfor %}</select></label>
+  <label>API Type<input value="TRANS User" disabled></label>
+</div>
+<div class="form-row">
+  <label>{{ t('api.auth') }}<select id="auth">
+    <option value="x-api-key,bearer" {{ 'selected' if not cfg or cfg.auth|default('x-api-key,bearer') == 'x-api-key,bearer' }}>{{ t('api.auth.both') }}</option>
+    <option value="x-api-key" {{ 'selected' if cfg.auth|default('') == 'x-api-key' }}>{{ t('api.auth.xonly') }}</option>
+    <option value="bearer" {{ 'selected' if cfg.auth|default('') == 'bearer' }}>{{ t('api.auth.beareronly') }}</option>
+  </select></label>
+  <label>{{ t('api.note') }}<input id="note" value="{{ cfg.note|default('') }}"></label>
+</div>
+</div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.data_source') }}</h2>
+<button type="button" class="btn btn-outline" id="chooseSheetsBtn">{{ t('trans.choose_sheets') }}</button>
+<div id="sheetViews" class="sheet-views"></div>
+<div class="mapping-grid">
+  <div class="mapping-target">
+    <h3>Params</h3>
+    <div id="targetParams" class="drop-zone"></div>
+  </div>
+  <div class="mapping-target">
+    <h3>Body</h3>
+    <div id="targetBody" class="drop-zone"></div>
+  </div>
+</div>
+</div>
+
+<div class="panel-card">
+<h2>{{ t('trans.section.advanced') }}</h2>
+<div class="form-row">
+  <label>{{ t('api.timeout') }}<input id="timeout" type="number" value="{{ cfg.timeout|default(10) }}"></label>
+  <label>{{ t('api.retry') }}<input id="retry" type="number" value="{{ cfg.retry|default(0) }}"></label>
+  <label>{{ t('api.ratelimit') }}<input id="rate_limit" type="number" value="{{ cfg.rate_limit|default(0) }}"></label>
+</div>
+</div>
+
+<div class="form-actions">
+  <button class="btn btn-primary" id="saveBtn">{{ t('common.save') }}</button>
+  <a class="btn btn-outline" href="{{ url_for('api.trans_user_list') }}">{{ t('common.cancel') }}</a>
+</div>
+
+<div id="sheetsModal" class="modal">
+  <div class="modal-box">
+    <h3>{{ t('trans.choose_sheets') }}</h3>
+    <div id="sheetsList" class="sheets-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-primary" id="sheetsApply">{{ t('common.confirm') }}</button>
+      <button type="button" class="btn btn-outline" id="sheetsCancel">{{ t('common.cancel') }}</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/trans_user_form.js') }}"></script>
+<script>
+window.USER_INIT = {{ (cfg|tojson) if cfg else '{}' }};
+window.USER_ID = {{ (api.id|tojson) if api and api.id else 'null' }};
+window.ALL_SHEETS = {{ sheets|tojson }};
+</script>
+{% endblock %}

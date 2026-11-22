@@ -14,17 +14,20 @@ from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..db import all_rows, api_config
+from ..db import all_rows
 
 _scheduler = None
 SYNC_INTERVAL = 60
 
 
-def _job(app, api_id):
-    """在 app context 内执行拉取，db helpers 才能拿到连接。"""
-    from .transmission import fetch_and_store
+def _job(app, origin_id):
+    """在 app context 内执行 TRANS Origin 采集。"""
+    from .db import one
+    from .trans_origin import run_batch
     with app.app_context():
-        fetch_and_store(api_id)
+        row = one("SELECT * FROM trans_origins WHERE id = ? AND enabled = 1", (origin_id,))
+        if row:
+            run_batch(dict(row), triggered_by="SCHEDULE")
 
 
 def _trigger_for(cfg):
@@ -47,15 +50,26 @@ def _trigger_for(cfg):
     return CronTrigger(hour=",".join(hours), minute=",".join(minutes), day_of_week=dow)
 
 
+def _origin_schedule(row):
+    """从 trans_origins row 构造 _trigger_for 需要的 dict。"""
+    import json
+    def load(key):
+        try:
+            return json.loads(row[key] or "[]")
+        except (ValueError, TypeError, KeyError):
+            return []
+    return {"times": load("times_json"), "days": load("days_json"), "frequency": row["frequency"]}
+
+
 def sync_jobs(app):
     """从数据库重建全部定时任务（删除已不存在/禁用的，更新变化的）。"""
     if _scheduler is None:
         return
     with app.app_context():
-        rows = all_rows("SELECT id, config FROM apis WHERE type = 'TRANSMISSION' AND enabled = 1")
+        rows = all_rows("SELECT id, frequency, days_json, times_json FROM trans_origins WHERE enabled = 1")
         desired = {}
         for row in rows:
-            trigger = _trigger_for(api_config(row))
+            trigger = _trigger_for(_origin_schedule(row))
             if trigger is not None:
                 desired[f"trans_{row['id']}"] = (row["id"], trigger)
 

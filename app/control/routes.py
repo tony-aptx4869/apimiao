@@ -5,7 +5,7 @@ from datetime import timedelta
 from flask import redirect, render_template, request, session, url_for
 
 from ..db import all_rows, one, execute, utcnow
-from ..utils import cutoff_iso, error, ok, require_login, require_admin, gen_api_key, hash_api_key
+from ..utils import cutoff_iso, error, ok, require_login, require_admin, gen_api_key, hash_api_key, local_day
 from config import endpoint_prefix
 from . import bp
 
@@ -30,7 +30,7 @@ def overview():
         "d30": cutoff_iso(timedelta(days=30)),
     }
     counts = {}          # 用户调用（GATEWAY）
-    original_counts = {} # 源 API 调用（UPSTREAM_PROXY / UPSTREAM_TRANSMISSION）
+    original_counts = {} # 源 API 调用（UPSTREAM_PROXY / UPSTREAM_TRANS）
     for key, since in windows.items():
         counts[key] = one(
             "SELECT COUNT(*) AS n FROM request_logs WHERE user_id = ? AND created_at >= ? "
@@ -38,7 +38,7 @@ def overview():
         )["n"]
         original_counts[key] = one(
             "SELECT COUNT(*) AS n FROM request_logs WHERE user_id = ? AND created_at >= ? "
-            "AND event_type IN ('UPSTREAM_PROXY', 'UPSTREAM_TRANSMISSION')", (uid, since)
+            "AND event_type IN ('UPSTREAM_PROXY', 'UPSTREAM_TRANS')", (uid, since)
         )["n"]
     key_count = one("SELECT COUNT(*) AS n FROM api_keys WHERE user_id = ?", (uid,))["n"]
     # 近 30 天每日用户调用量（供概览页 Daily Usage 图表）
@@ -49,7 +49,7 @@ def overview():
     )
     daily_map = {}
     for r in daily_rows:
-        day = r["created_at"][:10]  # YYYY-MM-DD
+        day = local_day(r["created_at"])  # 按本地时区(UTC+8)归到当天
         daily_map[day] = daily_map.get(day, 0) + 1
     daily_days = sorted(daily_map)
     return render_template("overview.html", counts=counts, original_counts=original_counts,
@@ -116,15 +116,21 @@ def logs_query():
     gate = require_login()
     if gate:
         return gate
-    since = cutoff_iso(timedelta(days=30))
+    # 覆盖日期选择器可选的最长 365 天范围
+    since = cutoff_iso(timedelta(days=366))
     all_logs = all_rows(
-        "SELECT method, endpoint, status, success, created_at, client_ip, event_type, api_id "
-        "FROM request_logs WHERE user_id = ? AND created_at >= ?",
+        "SELECT l.method, l.endpoint, l.status, l.success, l.created_at, l.client_ip, l.event_type, l.api_id, "
+        "l.api_key_id, k.name AS key_name "
+        "FROM request_logs l LEFT JOIN api_keys k ON k.id = l.api_key_id "
+        "WHERE l.user_id = ? AND l.created_at >= ?",
         (session["uid"], since),
     )
     # api_id -> API 类型，用于给 Endpoint 加 p/ / t/ 前缀（日志只存了不含前缀的 endpoint）
     api_types = {r["id"]: r["type"] for r in all_rows(
         "SELECT id, type FROM apis WHERE user_id = ?", (session["uid"],))}
+    # API Key 选项（供过滤下拉）
+    key_options = [{"id": r["id"], "name": r["name"]} for r in all_rows(
+        "SELECT id, name FROM api_keys WHERE user_id = ? ORDER BY name", (session["uid"],))]
 
     def display_endpoint(r):
         """用户调用日志的 Endpoint 加上网关前缀，还原实际调用路径。"""
@@ -150,8 +156,18 @@ def logs_query():
 
     method = (request.args.get("method") or "").upper()
     status = request.args.get("status") or ""
+    event = (request.args.get("event") or "").upper()
+    key_id = (request.args.get("key_id") or "").strip()
+    date_from = (request.args.get("date_from") or "").strip()   # 本地日期 YYYY-MM-DD（含）
+    date_to = (request.args.get("date_to") or "").strip()       # 本地日期 YYYY-MM-DD（含）
 
     def match(r):
+        if date_from or date_to:
+            day = local_day(r["created_at"])
+            if date_from and day < date_from:
+                return False
+            if date_to and day > date_to:
+                return False
         if method and method != "ALL" and r["method"] != method:
             return False
         if status and status != "ALL":
@@ -161,6 +177,10 @@ def logs_query():
                 return False
             if status.isdigit() and r["status"] != int(status):
                 return False
+        if event and event != "ALL" and (r["event_type"] or "GATEWAY").upper() != event:
+            return False
+        if key_id and key_id != "ALL" and str(r["api_key_id"] or "") != key_id:
+            return False
         return True
 
     rows = [r for r in gateway_logs if match(r)]
@@ -170,7 +190,7 @@ def logs_query():
 
     daily = {}
     for r in rows:
-        day = r["created_at"][:10]  # YYYY-MM-DD
+        day = local_day(r["created_at"])  # 按本地时区(UTC+8)归到当天
         daily[day] = daily.get(day, 0) + 1
     days = sorted(daily)
 
@@ -185,16 +205,19 @@ def logs_query():
             "method": r["method"], "endpoint": display_endpoint(r), "status": r["status"],
             "success": bool(r["success"]), "datetime": r["created_at"],
             "client_ip": r["client_ip"] or "-", "event_type": r["event_type"] or "GATEWAY",
+            "key_name": r["key_name"] or "-",
         }
 
-    history = [to_item(r) for r in sorted(all_logs, key=lambda r: r["created_at"], reverse=True)[:200]]
+    # 用户请求日志只展示 GATEWAY；上游日志只展示非 GATEWAY，两块都套用过滤条件
+    history = [to_item(r) for r in sorted(
+        [x for x in all_logs if (x["event_type"] or "GATEWAY") == "GATEWAY" and match(x)],
+        key=lambda r: r["created_at"], reverse=True)[:200]]
     upstream = [to_item(r) for r in sorted(
-        [x for x in all_logs if (x["event_type"] or "GATEWAY") != "GATEWAY"],
-        key=lambda r: r["created_at"], reverse=True,
-    )[:200]]
+        [x for x in all_logs if (x["event_type"] or "GATEWAY") != "GATEWAY" and match(x)],
+        key=lambda r: r["created_at"], reverse=True)[:200]]
     return ok(total=total, success=success, failed=failed, days=days,
               daily=[daily[d] for d in days], top=[{"endpoint": k, "count": v} for k, v in top],
-              history=history, upstream=upstream)
+              history=history, upstream=upstream, key_options=key_options)
 
 
 @bp.route("/panel/users")

@@ -1,12 +1,11 @@
 {% extends "panel_base.html" %}
-{% block title %}{{ t('panel.apimanager') }} · APIMiao{% endblock %}
+{% block title %}{{ t('panel.proxy_api') }} · APIMiao{% endblock %}
 {% block panel %}
 <div class="page-head">
-  <h1 class="page-title">{{ t('panel.apimanager') }}</h1>
+  <h1 class="page-title">{{ t('panel.proxy_api') }}</h1>
   <div class="head-actions">
     <button class="btn btn-danger" id="bulkDeleteBtn" style="display:none">{{ t('common.delete') }}</button>
-    <a class="btn btn-outline" href="{{ url_for('api.api_new', type='PROXY') }}"><i class="bi bi-plus"></i> {{ t('api.create.proxy') }}</a>
-    <a class="btn btn-primary" href="{{ url_for('api.api_new', type='TRANSMISSION') }}"><i class="bi bi-plus"></i> {{ t('api.create.transmission') }}</a>
+    <a class="btn btn-primary" href="{{ url_for('api.api_new', type='PROXY') }}"><i class="bi bi-plus"></i> {{ t('api.create.proxy') }}</a>
   </div>
 </div>
 <div class="table-wrap">
@@ -22,7 +21,7 @@
         <td><span class="method method-{{ a.method }}">{{ a.method }}</span></td>
         <td class="endpoint-cell">
           <a href="{{ url_for('api.api_edit', api_id=a.id) }}"><code>{% set pre = endpoint_prefix(a.type) %}{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}</code></a>
-          <button type="button" class="copy-endpoint" title="{{ '复制 Endpoint' if LANG() == 'zh' else 'Copy endpoint' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy"><i class="bi bi-copy"></i></button>
+          <button type="button" class="copy-endpoint" title="{{ '复制 Endpoint' if LANG() == 'zh' else 'Copy Endpoint' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy"><i class="bi bi-copy"></i></button>
           <button type="button" class="copy-url" title="{{ '复制完整 API URL' if LANG() == 'zh' else 'Copy full API URL' }}" data-path="{% if pre %}{{ pre }}/{% endif %}{{ a.endpoint }}" aria-label="copy-url"><i class="bi bi-link"></i></button>
         </td>
         <td><span class="tag tag-{{ a.type|lower }}">{{ a.type }}</span></td>

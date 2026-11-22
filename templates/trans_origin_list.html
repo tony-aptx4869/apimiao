@@ -1,0 +1,68 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.trans_origin') }} · APIMiao{% endblock %}
+{% block panel %}
+<div class="page-head">
+  <h1 class="page-title">{{ t('panel.trans_origin') }}</h1>
+  <div class="head-actions">
+    <button class="btn btn-outline" id="expandAll">{{ t('trans.expand_all') }}</button>
+    <button class="btn btn-outline" id="collapseAll">{{ t('trans.collapse_all') }}</button>
+    <a class="btn btn-primary" href="{{ url_for('api.trans_origin_new') }}"><i class="bi bi-plus"></i> {{ t('trans.create_origin') }}</a>
+  </div>
+</div>
+<div id="groupTree" class="group-tree"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const ORIGINS = {{ origins|tojson }};
+const LABELS = { method: '{{ t("api.method") }}', url: 'Original API URL', type: 'Type',
+  auth: 'Auth', created: '{{ t("api.created") }}', note: '{{ t("api.note") }}',
+  ops: '{{ t("common.operations") }}', edit: '{{ t("common.edit") }}', del: '{{ t("common.delete") }}' };
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function urlParts(u){
+  try { const x=new URL(u); const segs=x.pathname.split('/').filter(Boolean);
+    return {host:x.origin, l1:segs.length?[x.origin, segs[0]].join('/'):null, l2:segs.length>1?[x.origin, ...segs.slice(0,2)].join('/'):null};
+  } catch(e){ return {host:u, l1:null, l2:null}; }
+}
+function render(){
+  const tree={};
+  ORIGINS.forEach(o=>{
+    const p=urlParts(o.original_url);
+    tree[p.host]=tree[p.host]||{_items:[],_sub:{}};
+    tree[p.host]._items.push(o);
+  });
+  const root=document.getElementById('groupTree');
+  root.innerHTML=Object.keys(tree).sort().map((host,i)=>{
+    const g=tree[host];
+    const rows=g._items.map(o=>`<tr>
+      <td><input type="checkbox" class="row-check" value="${esc(o.id)}"></td>
+      <td><span class="method method-${esc(o.original_method)}">${esc(o.original_method)}</span></td>
+      <td class="url-cell"><code>${esc(o.original_url)}</code></td>
+      <td><span class="tag tag-trans">TRANS Origin</span></td>
+      <td>${esc(o.auth||'-')}</td>
+      <td class="date-cell" data-utc="${esc(o.created_at||'')}"></td>
+      <td>${esc(o.note)}</td>
+      <td class="row-actions">
+        <a class="btn btn-xs btn-outline" href="/panel/trans-origin/${esc(o.id)}/edit">${esc(LABELS.edit)}</a>
+        <button class="btn btn-xs btn-danger" onclick="delOrigin('${esc(o.id)}')">${esc(LABELS.del)}</button>
+      </td></tr>`).join('');
+    return `<div class="group-block" data-group="${i}">
+      <div class="group-head" onclick="this.nextElementSibling.classList.toggle('collapsed')"><i class="bi bi-chevron-down"></i> <code>${esc(host)}</code> <span class="muted">(${g._items.length})</span></div>
+      <div class="group-body"><div class="table-wrap"><table class="data-table">
+        <thead><tr><th><input type="checkbox" class="head-check"></th><th>${esc(LABELS.method)}</th><th>${esc(LABELS.url)}</th><th>${esc(LABELS.type)}</th><th>${esc(LABELS.auth)}</th><th>${esc(LABELS.created)}</th><th>${esc(LABELS.note)}</th><th class="row-actions-head">${esc(LABELS.ops)}</th></tr></thead>
+        <tbody>${rows}</tbody></table></div></div></div>`;
+  }).join('') || `<p class="empty">No TRANS Origin APIs yet.</p>`;
+  document.querySelectorAll('.head-check').forEach(h=>h.onclick=()=>{
+    h.closest('.group-body').querySelectorAll('.row-check').forEach(c=>c.checked=h.checked);
+  });
+  formatDates&&formatDates();
+}
+async function delOrigin(id){
+  if(!confirm('Delete this origin?')) return;
+  const r=await apiFetch('/api/trans-origins/'+id,'DELETE');
+  if(r.ok) location.reload(); else alert(r.error);
+}
+document.getElementById('expandAll').onclick=()=>document.querySelectorAll('.group-body').forEach(b=>b.classList.remove('collapsed'));
+document.getElementById('collapseAll').onclick=()=>document.querySelectorAll('.group-body').forEach(b=>b.classList.add('collapsed'));
+render();
+</script>
+{% endblock %}

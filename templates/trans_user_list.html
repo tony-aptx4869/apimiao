@@ -1,0 +1,42 @@
+{% extends "panel_base.html" %}
+{% block title %}{{ t('panel.trans_user') }} · APIMiao{% endblock %}
+{% block panel %}
+<div class="page-head">
+  <h1 class="page-title">{{ t('panel.trans_user') }}</h1>
+  <div class="head-actions">
+    <a class="btn btn-primary" href="{{ url_for('api.trans_user_new') }}"><i class="bi bi-plus"></i> {{ t('trans.create_user') }}</a>
+  </div>
+</div>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Method</th><th>API Endpoint</th><th>Type</th><th>Auth</th><th>{{ t('api.created') }}</th><th>{{ t('api.note') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
+    <tbody>
+    {% for a in apis %}
+      <tr>
+        <td><span class="method method-{{ a.method }}">{{ a.method }}</span></td>
+        <td class="endpoint-cell"><code>{{ prefix }}/{{ a.endpoint }}</code></td>
+        <td><span class="tag tag-trans">TRANS User</span></td>
+        <td>{{ a.auth }}</td>
+        <td class="date-cell"></td>
+        <td class="note-cell">{{ a.note }}</td>
+        <td class="row-actions">
+          <a class="btn btn-xs btn-outline" href="{{ url_for('api.trans_user_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
+          <button class="btn btn-xs btn-danger del-api" data-id="{{ a.id }}">{{ t('common.delete') }}</button>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">No TRANS User APIs yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.del-api').forEach(b=>b.onclick=async()=>{
+  if(!confirm('Delete this API?')) return;
+  const r=await apiFetch('/api/trans-apis/'+b.dataset.id,'DELETE');
+  if(r.ok) location.reload(); else alert(r.error);
+});
+</script>
+{% endblock %}

@@ -3,6 +3,7 @@ import hashlib
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from flask import jsonify, redirect, request, session, url_for
 
@@ -38,6 +39,19 @@ def gen_recovery_codes(count=10) -> list:
 
 def mask_api_key(prefix: str, suffix: str) -> str:
     return f"{prefix}{'•' * 9}{suffix}"
+
+
+def merge_url_params(url: str, extra_params: dict) -> tuple:
+    """把 URL 里自带的 query 与额外参数合并，返回 (不含query的base_url, 合并后的params)。
+
+    httpx 在 URL 已带 query 时传入 params 会覆盖原 query，导致 URL 里的参数丢失。
+    先拆出原 query 合并进 params，再交给 httpx，可保留两边所有参数。
+    """
+    u = urlsplit(url)
+    merged = dict(parse_qsl(u.query, keep_blank_values=True))
+    merged.update(extra_params or {})
+    base = urlunsplit((u.scheme, u.netloc, u.path, "", ""))
+    return base, merged
 
 
 _egress_ip_cache = None
@@ -94,6 +108,25 @@ def valid_endpoint(endpoint: str) -> bool:
 
 def utc_dt(iso: str) -> datetime:
     return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+
+# 统计分组用的本地时区（来自 config.ini [general] timezone，默认 Asia/Shanghai）。
+# 库里统一存 UTC，图表/每日统计按配置的时区归到"本地日"。
+from zoneinfo import ZoneInfo
+from config import TIMEZONE as _TIMEZONE_NAME
+
+try:
+    LOCAL_TZ = ZoneInfo(_TIMEZONE_NAME)
+except Exception:
+    LOCAL_TZ = timezone(timedelta(hours=8))  # 配置无效时兜底北京时间
+
+
+def local_day(iso: str) -> str:
+    """把 UTC ISO 时间按配置的本地时区转成 YYYY-MM-DD，用于每日统计分组。"""
+    try:
+        return utc_dt(iso).astimezone(LOCAL_TZ).strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return (iso or "")[:10]
 
 
 def cutoff_iso(delta: timedelta) -> str:

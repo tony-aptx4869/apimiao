@@ -6,16 +6,19 @@
 # config.ini 含密钥等敏感信息，已加入 .gitignore，请勿提交。
 # ============================================================
 
+[general]
+# 全站时区（IANA 时区名），用于每日统计/图表按本地日期分组。
+# 数据库始终存 UTC；统计时按此配置换算成"本地日"。
+timezone = Asia/Shanghai
+
 [server]
 # 开发模式（python3 main.py）监听地址与端口
 host = 0.0.0.0
 port = 5099
 # 是否开启 Flask 调试模式：0=关闭，1=开启
 debug = 0
-# 服务器公网出口 IP（源 API 实际看到的来源 IP）。留空则自动探测。
-# 用于 UPSTREAM_* 日志：这类日志的 Client IP 显示服务器出口 IP，
-# 而 GATEWAY 日志仍显示调用方 IP。若自动探测不准，可在此显式填写。
-egress_ip =
+# 服务器公网出口 IP（源 API 实际看到的来源 IP）
+egress_ip = 104.168.95.41
 
 [gunicorn]
 # 生产模式（gunicorn）监听地址与端口，由 Caddy 反代到此地址
@@ -59,3 +62,8 @@ cookie_secure = false
 [admin]
 # 默认 ADMIN 邮箱（ID 固定为 0000005f，初始密码首次启动时生成）
 email = miao@apimiao.local
+
+[trans]
+# TRANS Origin 列表参数笛卡尔积组合数上限：超过则拒绝保存与采集，防止请求量爆炸。
+# 设为 0 或负数表示不限制（仅在你完全信任源 API 时使用，有误发大量请求的风险）。
+cartesian_limit = 10000

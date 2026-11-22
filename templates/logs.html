@@ -19,50 +19,67 @@
   <ol id="topList" class="top-list"></ol>
 </div>
 <div class="panel-card">
-  <h2>{{ t('logs.filters') }}</h2>
+  <h2>{{ t('logs.user_requests') }}</h2>
   <div class="filters">
-    <input type="text" id="filterSearch" placeholder="Search endpoint...">
+    <input type="text" id="filterSearch" class="filter-search" placeholder="{{ t('logs.search') }} Endpoint...">
+    <span class="date-range" title="{{ t('logs.date_range') }}"><input type="date" id="filterDateFrom"><span class="date-sep">~</span><input type="date" id="filterDateTo"></span>
+    <select id="filterEvent"><option value="ALL">{{ t('logs.event') }}: {{ t('common.all') }}</option><option value="GATEWAY">{{ t('logs.event_opt.gateway') }}</option></select>
     <select id="filterMethod"><option value="ALL">METHOD: {{ t('common.all') }}</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
-    <select id="filterStatus"><option value="ALL">STATUS: {{ t('common.all') }}</option><option value="SUCCESS">SUCCESS</option><option value="FAILED">FAILED</option><option value="200">200</option><option value="404">404</option><option value="429">429</option><option value="500">500</option></select>
+    <select id="filterKey"><option value="ALL">API KEY: {{ t('common.all') }}</option></select>
+    <select id="filterStatus"><option value="ALL">{{ t('logs.status') }}: {{ t('common.all') }}</option><option value="SUCCESS">{{ t('logs.success_opt') }}</option><option value="FAILED">{{ t('logs.failed_opt') }}</option><option value="200">200</option><option value="404">404</option><option value="429">429</option><option value="500">500</option></select>
     <button class="btn btn-primary" id="applyFilter">{{ t('logs.apply') }}</button>
     <button class="btn btn-outline" id="clearFilter">{{ t('logs.clear') }}</button>
   </div>
-  <h2>{{ t('logs.history') }}</h2>
-  <p class="hint">{{ 'GATEWAY 为用户调用本平台（来源 IP = 调用方）；UPSTREAM 为本平台请求源 API（来源 IP = 服务器出口 IP，即源 API 实际看到的 IP）。' if LANG() == 'zh' else 'GATEWAY = caller requests this platform (source IP = caller); UPSTREAM = this platform requests the source API (source IP = server egress IP, what the source API actually sees).' }}</p>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>EVENT</th><th>Method</th><th>Endpoint / 源 API</th><th title="{{ 'GATEWAY=调用方IP；UPSTREAM=服务器出口IP(源API所见)' if LANG() == 'zh' else 'GATEWAY=caller IP; UPSTREAM=server egress IP (what source API sees)' }}">{{ t('logs.source_ip') }}</th><th>Status</th><th>{{ t('logs.datetime') }}</th></tr></thead>
+      <thead><tr><th>{{ t('logs.event') }}</th><th>Method</th><th>Endpoint</th><th>{{ t('logs.api_key') }}</th><th>{{ t('logs.source_ip') }}</th><th>{{ t('logs.status') }}</th><th>{{ t('logs.datetime') }}</th></tr></thead>
       <tbody id="historyBody"></tbody>
     </table>
   </div>
+  <div class="pager" id="historyPager"></div>
 </div>
 <div class="panel-card">
-  <h2>{{ '源 API 请求日志 (Proxy / Transmission)' if LANG() == 'zh' else 'Upstream API Requests (Proxy / Transmission)' }}</h2>
-  <p class="hint">{{ '记录本平台服务端向源 API 发起的请求。此处的来源是服务器出口 IP（即源 API 实际看到的 IP），不是调用方 IP。' if LANG() == 'zh' else 'Requests this platform made to upstream APIs. The source shown is the server egress IP (what the source API actually sees), not the caller IP.' }}</p>
+  <h2>{{ t('logs.upstream_requests') }}</h2>
+  <div class="filters">
+    <input type="text" id="upSearch" class="filter-search" placeholder="{% if LANG() == 'zh' %}搜索源 API...{% else %}Search Upstream API...{% endif %}">
+    <span class="date-range" title="{{ t('logs.date_range') }}"><input type="date" id="upDateFrom"><span class="date-sep">~</span><input type="date" id="upDateTo"></span>
+    <select id="upEvent"><option value="ALL">{{ t('logs.event') }}: {{ t('common.all') }}</option><option value="UPSTREAM_PROXY">{{ t('logs.event_opt.proxy') }}</option><option value="UPSTREAM_TRANS">{{ t('logs.event_opt.trans') }}</option></select>
+    <select id="upMethod"><option value="ALL">METHOD: {{ t('common.all') }}</option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+    <select id="upStatus"><option value="ALL">{{ t('logs.status') }}: {{ t('common.all') }}</option><option value="SUCCESS">{{ t('logs.success_opt') }}</option><option value="FAILED">{{ t('logs.failed_opt') }}</option><option value="200">200</option><option value="404">404</option><option value="429">429</option><option value="500">500</option></select>
+    <button class="btn btn-primary" id="upApply">{{ t('logs.apply') }}</button>
+    <button class="btn btn-outline" id="upClear">{{ t('logs.clear') }}</button>
+  </div>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>EVENT</th><th>Method</th><th>源 API</th><th>Status</th><th>{{ t('logs.datetime') }}</th></tr></thead>
+      <thead><tr><th>{{ t('logs.event') }}</th><th>Method</th><th>源 API</th><th>{{ t('logs.source_ip') }}</th><th>{{ t('logs.status') }}</th><th>{{ t('logs.datetime') }}</th></tr></thead>
       <tbody id="upstreamBody"></tbody>
     </table>
   </div>
+  <div class="pager" id="upstreamPager"></div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/chart.js') }}"></script>
 <script>
 let cached = null;
+let cachedUp = [];
 let chartMode = 'line';
 const EVENT_LABEL = {
-  GATEWAY: '{{ '用户调用' if LANG() == 'zh' else 'Gateway' }}',
-  UPSTREAM_PROXY: '{{ '代理源API' if LANG() == 'zh' else 'Proxy→Upstream' }}',
-  UPSTREAM_TRANSMISSION: '{{ '中转拉取' if LANG() == 'zh' else 'Trans→Upstream' }}'
+  GATEWAY: '{{ t('logs.event_opt.gateway') }}',
+  UPSTREAM_PROXY: '{{ t('logs.event_opt.proxy') }}',
+  UPSTREAM_TRANS: '{{ t('logs.event_opt.trans') }}'
 };
 function eventBadge(e) {
   const label = EVENT_LABEL[e] || e;
   return '<span class="event-badge event-' + e.toLowerCase() + '">' + esc(label) + '</span>';
 }
-async function loadLogs(method, status) {
-  const r = await apiGet('/api/logs/query?method=' + encodeURIComponent(method || 'ALL') + '&status=' + encodeURIComponent(status || 'ALL'));
+function qs(id){ return document.getElementById(id).value; }
+// 统计/图表/ Top 只按用户请求日志的过滤条件计算
+async function loadLogs() {
+  const p = 'method=' + encodeURIComponent(qs('filterMethod')) + '&status=' + encodeURIComponent(qs('filterStatus')) +
+            '&event=' + encodeURIComponent(qs('filterEvent')) + '&key_id=' + encodeURIComponent(qs('filterKey')) +
+            '&date_from=' + encodeURIComponent(qs('filterDateFrom')) + '&date_to=' + encodeURIComponent(qs('filterDateTo'));
+  const r = await apiGet('/api/logs/query?' + p);
   if (!r.ok) return;
   cached = r;
   document.getElementById('statTotal').textContent = r.total;
@@ -71,28 +88,90 @@ async function loadLogs(method, status) {
   window.drawChart(document.getElementById('dailyChart'), r.days, r.daily, chartMode);
   const top = document.getElementById('topList');
   top.innerHTML = r.top.map(x => '<li><span>' + esc(x.endpoint) + '</span><b>' + x.count + '</b></li>').join('') || '<li class="empty">No data</li>';
-  renderHistory(r.history);
-  renderUpstream(r.upstream || []);
+  renderHistory(r.history, qs('filterSearch'));
+  // 填充 API Key 过滤下拉（只填一次）
+  const sel = document.getElementById('filterKey');
+  if (sel.options.length <= 1 && r.key_options) {
+    r.key_options.forEach(k => { const o = document.createElement('option'); o.value = k.id; o.textContent = k.name; sel.appendChild(o); });
+  }
+  loadUpstream();
 }
-function renderHistory(rows) {
-  const term = (document.getElementById('filterSearch').value || '').toLowerCase();
-  const filtered = rows.filter(r => !term || r.endpoint.toLowerCase().includes(term));
-  document.getElementById('historyBody').innerHTML = filtered.map(r =>
-    '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
-    '<td><code>' + esc(r.endpoint) + '</code></td><td>' + esc(r.client_ip) + '</td>' +
-    '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
-    '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>'
-  ).join('') || '<tr><td colspan="6" class="empty">No records</td></tr>';
-  formatDates();
+async function loadUpstream() {
+  const p = 'method=' + encodeURIComponent(qs('upMethod')) + '&status=' + encodeURIComponent(qs('upStatus')) +
+            '&event=' + encodeURIComponent(qs('upEvent')) +
+            '&date_from=' + encodeURIComponent(qs('upDateFrom')) + '&date_to=' + encodeURIComponent(qs('upDateTo'));
+  const r = await apiGet('/api/logs/query?' + p);
+  if (!r.ok) return;
+  cachedUp = r.upstream || [];
+  renderUpstream(cachedUp, qs('upSearch'));
 }
-function renderUpstream(rows) {
-  document.getElementById('upstreamBody').innerHTML = rows.map(r =>
-    '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
-    '<td><code>' + esc(r.endpoint) + '</code></td>' +
-    '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
-    '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>'
-  ).join('') || '<tr><td colspan="5" class="empty">No upstream requests</td></tr>';
-  formatDates();
+// ---------- 通用分页器 ----------
+const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100];
+function createPager(pagerId, bodyId, rowHtml, colspan, emptyText) {
+  const st = { rows: [], page: 1, perPage: 10 };
+  function pageNumbers(total, cur) {
+    // 最多 5 个页码按钮，尽量让当前页居中
+    let start = Math.max(1, cur - 2), end = Math.min(total, start + 4);
+    start = Math.max(1, end - 4);
+    const out = [];
+    for (let i = start; i <= end; i++) out.push(i);
+    return out;
+  }
+  function draw() {
+    const totalPages = Math.max(1, Math.ceil(st.rows.length / st.perPage));
+    if (st.page > totalPages) st.page = totalPages;
+    const start = (st.page - 1) * st.perPage;
+    const slice = st.rows.slice(start, start + st.perPage);
+    document.getElementById(bodyId).innerHTML = slice.map(rowHtml).join('') ||
+      '<tr><td colspan="' + colspan + '" class="empty">' + emptyText + '</td></tr>';
+    formatDates();
+    const pager = document.getElementById(pagerId);
+    const sel = '<select class="pager-size">' + PER_PAGE_OPTIONS.map(n =>
+      '<option value="' + n + '"' + (n === st.perPage ? ' selected' : '') + '>' + n + ' {{ t("logs.per_page") }}</option>'
+    ).join('') + '</select>';
+    const first = '<button type="button" class="pager-btn" data-act="first" title="First"><i class="bi bi-caret-left-fill"></i></button>';
+    const prev = '<button type="button" class="pager-btn" data-act="prev" title="Prev"><i class="bi bi-caret-left"></i></button>';
+    const next = '<button type="button" class="pager-btn" data-act="next" title="Next"><i class="bi bi-caret-right"></i></button>';
+    const last = '<button type="button" class="pager-btn" data-act="last" title="Last"><i class="bi bi-caret-right-fill"></i></button>';
+    const nums = pageNumbers(totalPages, st.page).map(n =>
+      '<button type="button" class="pager-btn pager-num' + (n === st.page ? ' active' : '') + '" data-page="' + n + '">' + n + '</button>'
+    ).join('');
+    pager.innerHTML = sel + '<div class="pager-nav">' + first + prev + nums + next + last + '</div>';
+    pager.querySelector('.pager-size').onchange = e => { st.perPage = parseInt(e.target.value); st.page = 1; draw(); };
+    pager.querySelectorAll('.pager-btn').forEach(b => b.onclick = () => {
+      const act = b.getAttribute('data-act'), pg = b.getAttribute('data-page');
+      if (pg) st.page = parseInt(pg);
+      else if (act === 'first') st.page = 1;
+      else if (act === 'prev') st.page = Math.max(1, st.page - 1);
+      else if (act === 'next') st.page = Math.min(totalPages, st.page + 1);
+      else if (act === 'last') st.page = totalPages;
+      draw();
+    });
+  }
+  return {
+    set(rows) { st.rows = rows; st.page = 1; draw(); },
+    refresh() { draw(); }
+  };
+}
+const historyRow = r =>
+  '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
+  '<td><code>' + esc(r.endpoint) + '</code></td><td>' + esc(r.key_name) + '</td><td>' + esc(r.client_ip) + '</td>' +
+  '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
+  '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>';
+const upstreamRow = r =>
+  '<tr><td>' + eventBadge(r.event_type) + '</td><td><span class="method method-' + r.method + '">' + r.method + '</span></td>' +
+  '<td><code>' + esc(r.endpoint) + '</code></td><td>' + esc(r.client_ip) + '</td>' +
+  '<td><span class="status ' + (r.success ? 'ok' : 'bad') + '">' + r.status + '</span></td>' +
+  '<td class="date-cell" data-utc="' + r.datetime + '"></td></tr>';
+const historyPager = createPager('historyPager', 'historyBody', historyRow, 7, 'No records');
+const upstreamPager = createPager('upstreamPager', 'upstreamBody', upstreamRow, 6, 'No upstream requests');
+function renderHistory(rows, term) {
+  term = (term || '').toLowerCase();
+  historyPager.set(rows.filter(r => !term || r.endpoint.toLowerCase().includes(term)));
+}
+function renderUpstream(rows, term) {
+  term = (term || '').toLowerCase();
+  upstreamPager.set(rows.filter(r => !term || r.endpoint.toLowerCase().includes(term)));
 }
 // 图表类型切换按钮（柱状/折线）；切换后沿用 cached 数据重绘
 (function () {
@@ -112,14 +191,39 @@ function renderUpstream(rows) {
   // 默认折线高亮
   mount.querySelector('[data-mode="line"]').classList.add('active');
 })();
-document.getElementById('applyFilter').onclick = () => loadLogs(document.getElementById('filterMethod').value, document.getElementById('filterStatus').value);
+document.getElementById('applyFilter').onclick = loadLogs;
 document.getElementById('clearFilter').onclick = () => {
-  document.getElementById('filterSearch').value = '';
-  document.getElementById('filterMethod').value = 'ALL';
-  document.getElementById('filterStatus').value = 'ALL';
-  loadLogs('ALL', 'ALL');
+  ['filterSearch','filterMethod','filterStatus','filterEvent','filterKey','filterDateFrom','filterDateTo'].forEach(id => document.getElementById(id).value = (id === 'filterSearch' || id.startsWith('filterDate')) ? '' : 'ALL');
+  loadLogs();
 };
-document.getElementById('filterSearch').addEventListener('input', () => { if (cached) renderHistory(cached.history); });
-loadLogs('ALL', 'ALL');
+document.getElementById('filterSearch').addEventListener('input', () => { if (cached) renderHistory(cached.history, qs('filterSearch')); });
+document.getElementById('upSearch').addEventListener('input', () => renderUpstream(cachedUp, qs('upSearch')));
+document.getElementById('upApply').onclick = loadUpstream;
+document.getElementById('upClear').onclick = () => {
+  ['upSearch','upMethod','upStatus','upEvent','upDateFrom','upDateTo'].forEach(id => document.getElementById(id).value = (id === 'upSearch' || id.startsWith('upDate')) ? '' : 'ALL');
+  loadUpstream();
+};
+// 日期范围选择器：限制最长 365 天，起始不晚于结束
+(function () {
+  function bindRange(fromId, toId) {
+    const f = document.getElementById(fromId), t = document.getElementById(toId);
+    const today = new Date();
+    const iso = d => d.toISOString().slice(0, 10);
+    const minDay = new Date(today.getTime() - 364 * 86400000);
+    [f, t].forEach(x => { x.min = iso(minDay); x.max = iso(today); });
+    function sync() {
+      if (f.value) {
+        const start = new Date(f.value + 'T00:00:00Z');
+        const maxEnd = new Date(Math.min(start.getTime() + 364 * 86400000, today.getTime()));
+        t.min = f.value; t.max = iso(maxEnd);
+        if (t.value && (t.value < f.value || t.value > iso(maxEnd))) t.value = '';
+      } else { t.min = iso(minDay); t.max = iso(today); }
+    }
+    f.addEventListener('change', sync); sync();
+  }
+  bindRange('filterDateFrom', 'filterDateTo');
+  bindRange('upDateFrom', 'upDateTo');
+})();
+loadLogs();
 </script>
 {% endblock %}
