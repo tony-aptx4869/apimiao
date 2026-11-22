@@ -4,6 +4,7 @@ import io
 import json
 import secrets
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 import pyotp
 import qrcode
@@ -54,8 +55,8 @@ def _options_response(options):
 import config
 from config import ADMIN_ID, PASSKEY_MAX
 from .. import i18n
-from ..db import all_rows, execute, get_db, new_id, one, q, utcnow
-from ..utils import error, gen_recovery_codes, hash_recovery_code, is_admin, ok, require_admin, require_login
+from ..db import all_rows, check_rate_limit, execute, get_db, new_id, one, q, utcnow
+from ..utils import error, gen_recovery_codes, hash_api_key, hash_recovery_code, is_admin, ok, require_admin, require_login
 from . import bp
 
 
@@ -75,11 +76,11 @@ def _create_recovery_codes(user_id):
 def _verify_recovery_code(user_id, code):
     """校验并消费一个恢复码（一次性），成功返回 True。"""
     h = hash_recovery_code(code)
-    row = one("SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used = 0", (user_id, h))
-    if not row:
-        return False
-    execute("UPDATE recovery_codes SET used = 1 WHERE id = ?", (row["id"],))
-    return True
+    cur = execute(
+        "UPDATE recovery_codes SET used = 1 WHERE user_id = ? AND code_hash = ? AND used = 0",
+        (user_id, h),
+    )
+    return cur.rowcount == 1
 
 
 def _rp_origin():
@@ -87,6 +88,12 @@ def _rp_origin():
     rp_id = config.RP_ID or request.host.split(":")[0]
     origin = config.ORIGIN or request.host_url.rstrip("/")
     return rp_id, origin
+
+
+def _brute_ok(scope, identity):
+    """登录与验证码尝试的粗略限速，按来源和账号维度计数。"""
+    key = hash_api_key(f"{scope}:{request.remote_addr}:{identity}")
+    return check_rate_limit(key, 5)
 
 
 def _finish_login(user):
@@ -110,7 +117,10 @@ def home():
 def set_lang(lang):
     if lang not in i18n.LANGS:
         lang = i18n.DEFAULT_LANG
-    resp = redirect(request.referrer or url_for("auth.home"))
+    target = request.referrer or url_for("auth.home")
+    if urlsplit(target).netloc and urlsplit(target).netloc != request.host:
+        target = url_for("auth.home")
+    resp = redirect(target)
     resp.set_cookie("apimiao_lang", lang, max_age=60 * 60 * 24 * 365, samesite="Lax")
     return resp
 
@@ -124,6 +134,8 @@ def login():
 
     email = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
+    if not _brute_ok("login", email):
+        return render_template("login.html", login_error=i18n.t("login.error.locked"), email=email)
     user = one("SELECT * FROM users WHERE email = ?", (email,))
     if not user or not check_password_hash(user["password_hash"], password):
         return render_template("login.html", login_error=i18n.t("login.error.bad"), email=email)
@@ -142,6 +154,8 @@ def login_2fa():
     uid = session.get("pending_2fa_uid")
     if not uid:
         return redirect(url_for("auth.login"))
+    if not _brute_ok("2fa", uid):
+        return render_template("verify_2fa.html", login_error=i18n.t("login.error.locked"))
     user = one("SELECT * FROM users WHERE id = ?", (uid,))
     code = (request.form.get("code") or "").strip()
     if not user:
@@ -164,8 +178,14 @@ def logout():
 
 @bp.route("/api/passkey/auth/options", methods=["POST"])
 def passkey_auth_options():
+    email = str((request.get_json(silent=True) or {}).get("email") or "").strip()
+    if not email:
+        return error("Email required", 400)
+    user = one("SELECT id FROM users WHERE email = ?", (email,))
+    if not user:
+        return error("No passkeys registered", 400)
     allow = []
-    for row in all_rows("SELECT credential_id FROM passkeys ORDER BY id"):
+    for row in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ? ORDER BY id", (user["id"],)):
         allow.append(PublicKeyCredentialDescriptor(id=bytes(row["credential_id"])))
     if not allow:
         return error("No passkeys registered", 400)
@@ -471,6 +491,8 @@ def users_update(uid):
     email = (data.get("email") or user["email"]).strip()
     role = data.get("role") if data.get("role") in ("ADMIN", "USER") else user["role"]
     password_hash = user["password_hash"]
+    if one("SELECT 1 FROM users WHERE email = ? AND id != ?", (email, uid)):
+        return error("Email already exists", 400)
     if data.get("password"):
         if len(data["password"]) < 8:
             return error("Password too short", 400)
@@ -502,6 +524,8 @@ def profile_update():
     data = request.get_json(silent=True) or {}
     user = one("SELECT * FROM users WHERE id = ?", (session["uid"],))
     email = (data.get("email") or user["email"]).strip()
+    if one("SELECT 1 FROM users WHERE email = ? AND id != ?", (email, session["uid"])):
+        return error("Email already exists", 400)
     password_hash = user["password_hash"]
     force_cleared = False
     if session.get("force_pwd") or data.get("password"):

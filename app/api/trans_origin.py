@@ -119,9 +119,16 @@ def judge_success(status, body_text):
         return True, ""  # 非 JSON（如文本/二进制），HTTP 成功即算成功
     if not isinstance(data, dict):
         return True, ""
-    # success 布尔
-    if isinstance(data.get("success"), bool):
-        return (data["success"], "" if data["success"] else "success=false")
+    # success 布尔，兼容 0/1 和字符串 true/false
+    if "success" in data and isinstance(data["success"], (bool, int, float, str)):
+        raw = data["success"]
+        if isinstance(raw, bool):
+            ok_value = raw
+        elif isinstance(raw, (int, float)):
+            ok_value = raw != 0
+        else:
+            ok_value = str(raw).strip().lower() in ("1", "true", "yes", "ok", "success")
+        return ok_value, "" if ok_value else "success=false"
     for field in ("code", "status", "errcode", "errno"):
         if field in data:
             v = data[field]
@@ -188,6 +195,8 @@ def build_request(cfg, values=None):
             kwargs["headers"]["Content-Type"] = "application/json; charset=utf-8"
     elif body_mode == "text" and cfg.get("body"):
         kwargs["content"] = _fill(cfg["body"], values, o_key).encode("utf-8")
+    elif body_mode == "binary" and cfg.get("body"):
+        kwargs["content"] = _fill(cfg["body"], values, o_key).encode("utf-8")
     return cfg.get("original_method", "GET"), url, kwargs
 
 
@@ -233,16 +242,18 @@ def extract_fields(body_text, fields_config=None):
     return names, payload
 
 
-def ensure_sheet(user_id, origin_id, sheet_name, field_names):
+def ensure_sheet(user_id, origin_id, sheet_name, field_names, replace_fields=False):
     """获取或创建逻辑数据表记录，返回 sheet_id。"""
-    row = one("SELECT id FROM data_sheets WHERE user_id = ? AND name = ?", (user_id, sheet_name))
+    row = one("SELECT id FROM data_sheets WHERE user_id = ? AND name = ? AND origin_id = ?",
+              (user_id, sheet_name, origin_id))
     fields_json = json.dumps(
         [{"name": n, "enabled": True, "order": i} for i, n in enumerate(field_names)],
         ensure_ascii=False,
     )
     if row:
-        execute("UPDATE data_sheets SET fields_json = ?, origin_id = ? WHERE id = ?",
-                (fields_json, origin_id, row["id"]))
+        if replace_fields:
+            execute("UPDATE data_sheets SET fields_json = ?, origin_id = ? WHERE id = ?",
+                    (fields_json, origin_id, row["id"]))
         return row["id"]
     sheet_id = new_id()
     execute(
@@ -269,8 +280,14 @@ def collect_batch(origin, cfg_override=None):
     if err:
         return {"success": False, "total": 0, "failed": 0, "errors": [err], "items": [], "payloads": [], "field_names": []}
 
+    fields_raw = origin.get("fields_json")
+    if not fields_raw:
+        sheet_name = cfg.get("sheet_name") or origin.get("sheet_name", "")
+        sheet = one("SELECT fields_json FROM data_sheets WHERE user_id = ? AND name = ?",
+                    (origin.get("user_id"), sheet_name))
+        fields_raw = sheet["fields_json"] if sheet else "[]"
     try:
-        fields_cfg = json.loads(origin.get("fields_json", "[]") or "[]")
+        fields_cfg = json.loads(fields_raw or "[]")
     except (ValueError, TypeError):
         fields_cfg = []
     interval = float(cfg.get("request_interval", 0) or 0)
@@ -285,10 +302,9 @@ def collect_batch(origin, cfg_override=None):
                       "error": err_msg, "duration": duration})
         if success:
             ok_count += 1
-            names, _ = extract_fields(body)
+            names, payload = extract_fields(body, fields_cfg)
             if not field_names:
                 field_names = names
-            _, payload = extract_fields(body, fields_cfg)
             payloads.append({"combo": combo, "data": payload})
         else:
             fail_count += 1

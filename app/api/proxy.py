@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from flask import Response, g, request
 
-from config import GATEWAY_MODE
+from config import GATEWAY_MODE, TRUSTED_PROXIES
 from ..db import api_config, all_rows, check_rate_limit, execute, log_request, one, utcnow
 from ..utils import PLACEHOLDER_RE, error, hash_api_key, merge_url_params, server_egress_ip
 from . import bp
@@ -56,15 +56,16 @@ _TEMPLATE_TOKEN = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 
 
 def _client_ip():
-    """取调用方 IP：优先反代（Caddy）注入的 X-Forwarded-For 第一段，其次 X-Real-IP，最后直连地址。"""
-    xff = request.headers.get("X-Forwarded-For", "")
-    if xff:
-        first = xff.split(",")[0].strip()
-        if first:
-            return first
-    real = request.headers.get("X-Real-IP", "").strip()
-    if real:
-        return real
+    """只在可信反代上读取转发头，否则使用直连地址。"""
+    if request.remote_addr in TRUSTED_PROXIES:
+        xff = request.headers.get("X-Forwarded-For", "")
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+        real = request.headers.get("X-Real-IP", "").strip()
+        if real:
+            return real
     return request.remote_addr or ""
 
 
@@ -88,6 +89,27 @@ def _authenticate():
     return user, key, None
 
 
+def _api_key_source():
+    """返回本次请求使用的鉴权头名称。"""
+    if request.headers.get("X-API-Key"):
+        return "x-api-key"
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return "bearer"
+    return ""
+
+
+def _ensure_allowed_scheme(auth_value):
+    """按 API 配置限制允许的鉴权方式。"""
+    allowed = {s.strip().lower() for s in str(auth_value or "").split(",") if s.strip()}
+    if not allowed:
+        return None
+    source = _api_key_source()
+    if source not in allowed:
+        return error("API key scheme not allowed", 401)
+    return None
+
+
 def _compile_template(endpoint):
     parts, names, pos = [], [], 0
     for m in _TEMPLATE_TOKEN.finditer(endpoint):
@@ -106,7 +128,10 @@ def _match_api(user_id, method, path, api_type=None):
         sql += " AND type = ?"
         args.append(api_type)
     for row in all_rows(sql, args):
-        pattern, names = _compile_template(row["endpoint"])
+        try:
+            pattern, _names = _compile_template(row["endpoint"])
+        except re.error:
+            continue
         m = pattern.match(path)
         if m:
             return row, {k: v for k, v in m.groupdict().items() if v is not None}
@@ -178,6 +203,10 @@ def _gateway(endpoint, api_type=None):
         log_request(user["id"], None, request.method, endpoint, 404, False, 0, "Endpoint not found", client_ip=client_ip)
         return error("Endpoint not found", 404)
 
+    scheme_error = _ensure_allowed_scheme(api["auth"])
+    if scheme_error:
+        return scheme_error
+
     cfg = api_config(api)
     if not _check_rate(hash_api_key(key), cfg.get("rate_limit", 0)):
         log_request(user["id"], api["id"], request.method, endpoint, 429, False, 0, "Rate limited", client_ip=client_ip)
@@ -219,17 +248,17 @@ def _gateway(endpoint, api_type=None):
 
     body_mode = cfg.get("body_mode", "none")
     body, content = None, None
-    if body_mode == "json":
-        preset_body = _fill(cfg.get("body", ""), values, o_api_key)
-        body = preset_body.encode("utf-8") if preset_body else None
-        if body and "content-type" not in {k.lower() for k in headers}:
-            headers["Content-Type"] = "application/json; charset=utf-8"
-    elif body_mode == "text":
-        body = _fill(cfg.get("body", ""), values, o_api_key).encode("utf-8")
-    elif body_mode == "binary":
-        content = request.get_data()
-
     if cfg.get("body_enabled", True):
+        if body_mode == "json":
+            preset_body = _fill(cfg.get("body", ""), values, o_api_key)
+            body = preset_body.encode("utf-8") if preset_body else None
+            if body and "content-type" not in {k.lower() for k in headers}:
+                headers["Content-Type"] = "application/json; charset=utf-8"
+        elif body_mode == "text":
+            body = _fill(cfg.get("body", ""), values, o_api_key).encode("utf-8")
+        elif body_mode == "binary":
+            content = request.get_data()
+
         if request.data and content is None:
             content = request.get_data()
         if request.is_json and body_mode == "json":
@@ -282,7 +311,7 @@ def _gateway(endpoint, api_type=None):
         log_request(user["id"], api["id"], request.method, endpoint, 502, False, duration, str(last_exc), client_ip=client_ip)
         log_request(user["id"], api["id"], method, url, 502, False, duration,
                     f"upstream error: {last_exc}", client_ip=server_egress_ip(), event_type="UPSTREAM_PROXY")
-        return error(f"Upstream error: {last_exc}", 502)
+        return error("Upstream error", 502)
 
     success = 200 <= resp.status_code < 400
     # 1) 用户调用日志（含调用方 IP）
@@ -316,12 +345,14 @@ def _trans_gateway(endpoint):
         return error(auth_err, 401)
     client_ip = _client_ip()
     # 匹配 trans_apis（endpoint 支持 {{占位符}}，此处简单精确匹配 + 模板匹配）
-    from ..utils import PLACEHOLDER_RE
     rows = all_rows("SELECT * FROM trans_apis WHERE user_id = ? AND method = ? AND enabled = 1",
                     (user["id"], request.method))
     api, vars_ = None, {}
     for row in rows:
-        pattern, names = _compile_template(row["endpoint"])
+        try:
+            pattern, _names = _compile_template(row["endpoint"])
+        except re.error:
+            continue
         m = pattern.match(endpoint)
         if m:
             api, vars_ = row, {k: v for k, v in m.groupdict().items() if v is not None}
@@ -330,6 +361,9 @@ def _trans_gateway(endpoint):
         log_request(user["id"], None, request.method, endpoint, 404, False, 0,
                     "Endpoint not found", client_ip=client_ip)
         return error("Endpoint not found", 404)
+    scheme_error = _ensure_allowed_scheme(api["auth"])
+    if scheme_error:
+        return scheme_error
     # 限流
     if not _check_rate(hash_api_key(key), api["rate_limit"] or 0):
         log_request(user["id"], api["id"], request.method, endpoint, 429, False, 0,
@@ -351,7 +385,7 @@ def _trans_gateway(endpoint):
     if err:
         log_request(user["id"], api["id"], request.method, endpoint, 500, False, duration,
                     err, client_ip=client_ip)
-        return error(err, 500)
+        return error("Query failed", 500)
     log_request(user["id"], api["id"], request.method, endpoint, 200, True, duration,
                 client_ip=client_ip)
     return Response(json.dumps(result, ensure_ascii=False), status=200, mimetype="application/json")

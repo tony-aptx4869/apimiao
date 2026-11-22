@@ -17,6 +17,7 @@ DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "apimiao.db"
 CONFIG_PATH = BASE_DIR / "config.ini"
 EXAMPLE_PATH = BASE_DIR / "config.ini.example"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # 首次运行：没有 config.ini 就从模板生成，保证开箱即用
 if not CONFIG_PATH.exists() and EXAMPLE_PATH.exists():
@@ -53,6 +54,10 @@ DEBUG = _bool(_get("server", "debug", "0"))
 # 服务器公网出口 IP（源 API 实际看到的 IP）。留空则运行时自动探测。
 # 用于 UPSTREAM_* 日志，让日志里的 IP 反映「源 API 看到的来源」而非调用方 IP。
 EGRESS_IP = _get("server", "egress_ip", "").strip()
+# 只有来自这些地址的 X-Forwarded-For / X-Real-IP 才可信。多值用逗号分隔。
+TRUSTED_PROXIES = tuple(
+    p.strip() for p in _get("server", "trusted_proxies", "127.0.0.1,::1").split(",") if p.strip()
+)
 
 # ---------------- gunicorn：生产服务器 ----------------
 BIND = _get("gunicorn", "bind", "127.0.0.1:8080")
@@ -71,7 +76,29 @@ RP_NAME = _get("webauthn", "rp_name", "APIMiao")
 ORIGIN = _get("webauthn", "origin", "") or f"http://localhost:{PORT}"
 
 # ---------------- security：安全 ----------------
-SECRET_KEY = _get("security", "secret_key", "").strip() or os.urandom(32).hex()
+def _load_secret_key() -> str:
+    """配置为空时生成一次并持久化，避免多 worker 各用不同密钥。"""
+    configured = _get("security", "secret_key", "").strip()
+    if configured:
+        return configured
+    key_path = DATA_DIR / "secret_key"
+    if key_path.exists():
+        try:
+            saved = key_path.read_text(encoding="utf-8").strip()
+            if saved:
+                return saved
+        except OSError:
+            pass
+    secret = os.urandom(32).hex()
+    try:
+        key_path.write_text(secret, encoding="utf-8")
+        os.chmod(key_path, 0o600)
+    except OSError:
+        pass
+    return secret
+
+
+SECRET_KEY = _load_secret_key()
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SECURE = _bool(_get("security", "cookie_secure", "false"))
@@ -112,5 +139,3 @@ TIMEZONE = _get("general", "timezone", "Asia/Shanghai").strip() or "Asia/Shangha
 # ---------------- trans：TRANS 模块 ----------------
 # 列表笛卡尔积组合数上限（0 或负数 = 不限制）。新建/编辑 Origin 保存时与定时采集时都校验。
 CARTESIAN_LIMIT = _int(_get("trans", "cartesian_limit", "10000"), 10000)
-
-DATA_DIR.mkdir(parents=True, exist_ok=True)

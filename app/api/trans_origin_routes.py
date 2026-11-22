@@ -11,6 +11,14 @@ from . import trans_origin as to
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
 
+def _number(value, cast, default, low, high):
+    try:
+        text = str(value).strip() if value is not None else ""
+        return max(low, min(cast(text or default), high))
+    except (TypeError, ValueError):
+        return None
+
+
 def _origin_config(row):
     """把 trans_origins 的 JSON 列解析成 dict，供表单使用。"""
     def load(key, default):
@@ -30,6 +38,7 @@ def _origin_config(row):
         "frequency": row["frequency"], "days": load("days_json", "[]"),
         "times": load("times_json", "[]"), "sheet_name": row["sheet_name"],
         "verified": row["verified"], "enabled": row["enabled"],
+        "created_at": row["created_at"] if "created_at" in row.keys() else "",
     }
 
 
@@ -47,8 +56,9 @@ def _payload_config(data):
         "body_mode": str(data.get("body_mode") or "none"),
         "body": str(data.get("body") or ""),
         "encoding": str(data.get("encoding") or "UTF-8"),
-        "timeout": int(data.get("timeout") or 10), "retry": int(data.get("retry") or 0),
-        "request_interval": float(data.get("request_interval") or 0),
+        "timeout": _number(data.get("timeout"), int, 10, 1, 120),
+        "retry": _number(data.get("retry"), int, 0, 0, 5),
+        "request_interval": _number(data.get("request_interval"), float, 0, 0, 3600),
         "frequency": str(data.get("frequency") or "DAY"),
         "days_json": dumps(data.get("days")), "times_json": dumps(data.get("times")),
         "sheet_name": str(data.get("sheet_name") or "").strip(),
@@ -56,6 +66,8 @@ def _payload_config(data):
 
 
 def _validate(cfg):
+    if any(cfg[k] is None for k in ("timeout", "retry", "request_interval")):
+        return "Invalid numeric field"
     if not cfg["original_url"]:
         return "Original API URL is required"
     if cfg["original_method"] not in METHODS:
@@ -159,6 +171,9 @@ def trans_origin_precheck():
     is_new = not origin_id
     if is_new:
         origin_id = new_id()
+    elif not one("SELECT 1 FROM trans_origins WHERE id = ? AND user_id = ?",
+                 (origin_id, session["uid"])):
+        return error("Origin not found", 404)
 
     # 预检：只采集不落库（dry-run），失败时数据库完全不留痕迹
     collected = {"success": False, "total": 0, "failed": 0, "errors": [err] if err else [],
@@ -183,7 +198,7 @@ def trans_origin_precheck():
     else:
         # 应急：只建数据表结构，不写数据
         to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                        [f["name"] for f in fields if f.get("enabled", True)])
+                        [f["name"] for f in fields if f.get("enabled", True)], True)
     return ok(saved=True, verified=verified, id=origin_id, success=collected["success"],
               total=collected["total"], failed=collected["failed"],
               errors=collected["errors"], **batch_info)
@@ -233,7 +248,7 @@ def trans_origin_create():
         preview = to.fetch_preview(cfg)
         fields = [{"name": n, "enabled": True, "order": i} for i, n in enumerate(preview.get("fields", []))]
     to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                    [f["name"] for f in fields if f.get("enabled", True)])
+                    [f["name"] for f in fields if f.get("enabled", True)], True)
     return ok(id=origin_id)
 
 
@@ -265,7 +280,7 @@ def trans_origin_update(origin_id):
     fields = data.get("fields")
     if fields is not None:
         to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                        [f["name"] for f in fields if f.get("enabled", True)])
+                        [f["name"] for f in fields if f.get("enabled", True)], True)
     return ok()
 
 

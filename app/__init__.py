@@ -1,7 +1,8 @@
 """APIMiao 应用工厂。"""
+from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, redirect, request, session, url_for
 
 from config import SECRET_KEY, SESSION_COOKIE_HTTPONLY, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE
 from . import i18n
@@ -18,12 +19,25 @@ def create_app():
         SESSION_COOKIE_SAMESITE=SESSION_COOKIE_SAMESITE,
         SESSION_COOKIE_SECURE=SESSION_COOKIE_SECURE,
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+        PERMANENT_SESSION_LIFETIME=timedelta(days=7),
     )
 
     init_db()
     app.teardown_appcontext(close_db)
     i18n.init_app(app)
     app.jinja_env.globals.update(t=i18n.t, LANG=i18n.get_lang, LANGS=i18n.LANGS)
+
+    @app.before_request
+    def _force_password_gate():
+        if not session.get("force_pwd"):
+            return None
+        allowed = {"auth.login", "auth.logout", "auth.set_lang", "control.profile", "static"}
+        if request.endpoint in allowed:
+            return None
+        if request.path.startswith("/api/"):
+            from .utils import error
+            return error("Password change required", 403)
+        return redirect(url_for("control.profile") + "?force=1")
 
     # 延迟导入，避免循环依赖
     from .auth import bp as auth_bp

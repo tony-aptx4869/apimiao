@@ -29,6 +29,7 @@ fi
 sudo chown "$SERVICE_USER":"$SERVICE_USER" "$APP_DIR/config.ini"
 
 # 4. 权限：数据目录归服务用户（两个服务共用同一数据库）
+mkdir -p "$APP_DIR/data"
 sudo chown -R "$SERVICE_USER":"$SERVICE_USER" "$APP_DIR/data"
 
 # 5. systemd：Web 服务 + 调度器服务

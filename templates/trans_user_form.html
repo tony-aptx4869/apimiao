@@ -63,10 +63,10 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/trans_user_form.js') }}"></script>
 <script>
 window.USER_INIT = {{ (cfg|tojson) if cfg else '{}' }};
 window.USER_ID = {{ (api.id|tojson) if api and api.id else 'null' }};
 window.ALL_SHEETS = {{ sheets|tojson }};
 </script>
+<script src="{{ url_for('static', filename='js/trans_user_form.js') }}"></script>
 {% endblock %}

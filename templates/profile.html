@@ -130,7 +130,7 @@ document.getElementById('verifyCancel').onclick = () => document.getElementById(
 document.getElementById('verifyConfirm').onclick = async () => {
   let data = {method: 'totp', code: document.getElementById('verifyCode')?.value || ''};
   if (!HAS_2FA) {
-    const cred = await authenticatePasskey();
+    const cred = await authenticatePasskey('/api/passkey/delete/options');
     if (!cred) return;
     data = cred; data.method = 'passkey';
   }

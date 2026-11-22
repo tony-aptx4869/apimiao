@@ -1,20 +1,12 @@
 """Control Panel 路由。"""
-import json
 from datetime import timedelta
 
-from flask import redirect, render_template, request, session, url_for
+from flask import render_template, request, session
 
 from ..db import all_rows, one, execute, utcnow
 from ..utils import cutoff_iso, error, ok, require_login, require_admin, gen_api_key, hash_api_key, local_day
 from config import endpoint_prefix
 from . import bp
-
-
-@bp.before_request
-def _gate():
-    if session.get("force_pwd") and request.endpoint not in ("control.profile",):
-        return redirect(url_for("control.profile") + "?force=1")
-
 
 @bp.route("/panel")
 @bp.route("/panel/overview")
@@ -128,6 +120,8 @@ def logs_query():
     # api_id -> API 类型，用于给 Endpoint 加 p/ / t/ 前缀（日志只存了不含前缀的 endpoint）
     api_types = {r["id"]: r["type"] for r in all_rows(
         "SELECT id, type FROM apis WHERE user_id = ?", (session["uid"],))}
+    api_types.update({r["id"]: "TRANSMISSION" for r in all_rows(
+        "SELECT id FROM trans_apis WHERE user_id = ?", (session["uid"],))})
     # API Key 选项（供过滤下拉）
     key_options = [{"id": r["id"], "name": r["name"]} for r in all_rows(
         "SELECT id, name FROM api_keys WHERE user_id = ? ORDER BY name", (session["uid"],))]

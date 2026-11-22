@@ -56,9 +56,10 @@ async function registerPasskey(name, platform, modal) {
   } catch (e) { alert('Passkey registration failed: ' + e.message); }
 }
 
-async function authenticatePasskey() {
+async function authenticatePasskey(optionsUrl, email) {
   try {
-    const opt = await apiPost('/api/passkey/auth/options', {});
+    const optionsBody = email ? {email: email} : {};
+    const opt = await apiPost(optionsUrl || '/api/passkey/auth/options', optionsBody);
     if (!opt.challenge) throw new Error(opt.error || 'No passkeys');
     const cred = await navigator.credentials.get({publicKey: optionToPublicKey(opt)});
     if (!cred) return null;
@@ -69,7 +70,8 @@ async function authenticatePasskey() {
 }
 
 document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () => {
-  const body = await authenticatePasskey();
+  const email = document.querySelector('input[name="email"]')?.value || '';
+  const body = await authenticatePasskey('/api/passkey/auth/options', email);
   if (!body) return;
   const r = await apiPost('/api/passkey/auth/verify', body);
   if (r.ok) location.reload();

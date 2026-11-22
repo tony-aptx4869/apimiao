@@ -6,7 +6,7 @@
 set -euo pipefail
 
 DOMAIN="${DOMAIN:-your-domain.com}"
-EMAIL="${EMAIL:-your-email@example.com}"
+EMAIL="${EMAIL:-}"
 if [ "$DOMAIN" = "your-domain.com" ]; then
   echo "[APIMiao] 请通过环境变量指定域名：DOMAIN=example.com EMAIL=you@example.com bash deploy/caddy-setup.sh"
   exit 1
@@ -24,11 +24,20 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
 sudo apt-get update -y
 sudo apt-get install -y caddy
 
-echo "[APIMiao] 生成 Caddyfile（域名: $DOMAIN，邮箱: $EMAIL）..."
+if [ -n "$EMAIL" ]; then
+  echo "[APIMiao] 生成 Caddyfile（域名: $DOMAIN，邮箱: $EMAIL）..."
+else
+  echo "[APIMiao] 生成 Caddyfile（域名: $DOMAIN，未设置邮箱）..."
+fi
 sudo mkdir -p /var/log/caddy
 sudo chown -R caddy:caddy /var/log/caddy
-sed -e "s|your-domain.com|$DOMAIN|g" -e "s|your-email@example.com|$EMAIL|g" \
-  "$APP_DIR/deploy/Caddyfile.example" | sudo tee /etc/caddy/Caddyfile > /dev/null
+if [ -n "$EMAIL" ]; then
+  sed -e "s|your-domain.com|$DOMAIN|g" -e "s|your-email@example.com|$EMAIL|g" \
+    "$APP_DIR/deploy/Caddyfile.example" | sudo tee /etc/caddy/Caddyfile > /dev/null
+else
+  sed -e "s|your-domain.com|$DOMAIN|g" -e "/^[[:space:]]*email /d" \
+    "$APP_DIR/deploy/Caddyfile.example" | sudo tee /etc/caddy/Caddyfile > /dev/null
+fi
 
 # 校验配置语法
 sudo caddy validate --config /etc/caddy/Caddyfile

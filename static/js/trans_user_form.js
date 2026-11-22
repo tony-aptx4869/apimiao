@@ -65,8 +65,9 @@ function renderSheetViews(){
   $('sheetViews').querySelectorAll('.dot').forEach(d=>d.onclick=()=>{
     const sid=d.dataset.sheet, f=d.dataset.field;
     sheetFields[sid]=sheetFields[sid]||{};
-    sheetFields[sid][f]=!sheetFields[sid][f];
-    d.classList.toggle('on',sheetFields[sid][f]); d.classList.toggle('off',!sheetFields[sid][f]);
+    const enabled=sheetFields[sid][f]!==false;
+    sheetFields[sid][f]=!enabled;
+    d.classList.toggle('on',!enabled); d.classList.toggle('off',enabled);
   });
   // 拖拽：字段拖到另一个字段上 = JOIN；拖到 Params/Body = 映射
   $('sheetViews').querySelectorAll('.schema-field').forEach(p=>{

@@ -4,7 +4,7 @@ import json
 from flask import redirect, render_template, request, session, url_for
 
 from ..db import all_rows, execute, new_id, one, utcnow
-from ..utils import error, ok, require_login, valid_endpoint
+from ..utils import error, ok, require_login, valid_endpoint, PLACEHOLDER_RE
 from . import bp
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -21,6 +21,7 @@ def _api_config(row):
     return {
         "id": row["id"], "endpoint": row["endpoint"], "method": row["method"],
         "auth": row["auth"], "encoding": row["encoding"], "note": row["note"],
+        "created_at": row["created_at"] if "created_at" in row.keys() else "",
         "sheet_ids": _load(row["sheet_ids_json"], "[]"),
         "joins": _load(row["joins_json"], "[]"),
         "sheet_fields": _load(row["sheet_fields_json"], "{}"),
@@ -31,9 +32,17 @@ def _api_config(row):
     }
 
 
+def _number(value, default, low, high):
+    try:
+        text = str(value).strip() if value is not None else ""
+        return max(low, min(int(text or default), high))
+    except (TypeError, ValueError):
+        return None
+
+
 def _payload_config(data):
     def dumps(v):
-        return json.dumps(v or [], ensure_ascii=False)
+        return json.dumps(v if isinstance(v, list) else [], ensure_ascii=False)
     return {
         "endpoint": str(data.get("endpoint") or "").strip(),
         "method": str(data.get("method") or "GET").upper(),
@@ -42,22 +51,43 @@ def _payload_config(data):
         "note": str(data.get("note") or "").strip(),
         "sheet_ids_json": dumps(data.get("sheet_ids")),
         "joins_json": dumps(data.get("joins")),
-        "sheet_fields_json": json.dumps(data.get("sheet_fields") or {}, ensure_ascii=False),
+        "sheet_fields_json": json.dumps(data.get("sheet_fields") if isinstance(data.get("sheet_fields"), dict) else {}, ensure_ascii=False),
         "param_mapping_json": dumps(data.get("param_mapping")),
         "body_mapping_json": dumps(data.get("body_mapping")),
-        "timeout": int(data.get("timeout") or 10),
-        "retry": int(data.get("retry") or 0),
-        "rate_limit": int(data.get("rate_limit") or 0),
+        "timeout": _number(data.get("timeout"), 10, 1, 120),
+        "retry": _number(data.get("retry"), 0, 0, 5),
+        "rate_limit": _number(data.get("rate_limit"), 0, 0, 100000),
     }
 
 
-def _validate(cfg):
+def _validate(cfg, user_id):
     if not valid_endpoint(cfg["endpoint"]):
         return "Invalid API Endpoint"
+    tokens = PLACEHOLDER_RE.findall(cfg["endpoint"])
+    if len(tokens) != len(set(tokens)):
+        return "Duplicate placeholder in endpoint"
     if cfg["method"] not in METHODS:
         return "Invalid method"
-    if not cfg["sheet_ids_json"] or cfg["sheet_ids_json"] == "[]":
+    if any(cfg[k] is None for k in ("timeout", "retry", "rate_limit")):
+        return "Invalid numeric field"
+    sheet_ids = _load(cfg["sheet_ids_json"], "[]")
+    if not isinstance(sheet_ids, list) or not sheet_ids:
         return "Select at least one data sheet"
+    joins = _load(cfg["joins_json"], "[]")
+    sheet_fields = _load(cfg["sheet_fields_json"], "{}")
+    referenced = set(str(s) for s in sheet_ids)
+    if isinstance(joins, list):
+        for j in joins:
+            if not isinstance(j, dict):
+                continue
+            for key in ("left_sheet", "right_sheet"):
+                if j.get(key):
+                    referenced.add(str(j[key]))
+    if isinstance(sheet_fields, dict):
+        referenced.update(str(sid) for sid in sheet_fields)
+    for sid in referenced:
+        if not one("SELECT 1 FROM data_sheets WHERE id = ? AND user_id = ?", (sid, user_id)):
+            return "Invalid data sheet"
     return None
 
 
@@ -70,7 +100,7 @@ def trans_user_list():
     from config import endpoint_prefix
     rows = all_rows("SELECT * FROM trans_apis WHERE user_id = ? ORDER BY created_at DESC", (session["uid"],))
     return render_template("trans_user_list.html",
-                           apis=[_api_config(r) for r in rows], prefix=endpoint_prefix("TRANS"))
+                           apis=[_api_config(r) for r in rows], prefix=endpoint_prefix("TRANSMISSION"))
 
 
 @bp.route("/panel/trans-user/new")
@@ -122,7 +152,7 @@ def trans_api_create():
         return gate
     data = request.get_json(silent=True) or {}
     cfg = _payload_config(data)
-    err = _validate(cfg)
+    err = _validate(cfg, session["uid"])
     if err:
         return error(err, 400)
     if one("SELECT 1 FROM trans_apis WHERE user_id = ? AND endpoint = ? AND method = ?",
@@ -149,7 +179,7 @@ def trans_api_update(api_id):
         return error("API not found", 404)
     data = request.get_json(silent=True) or {}
     cfg = _payload_config(data)
-    err = _validate(cfg)
+    err = _validate(cfg, session["uid"])
     if err:
         return error(err, 400)
     if one("SELECT 1 FROM trans_apis WHERE user_id = ? AND endpoint = ? AND method = ? AND id != ?",

@@ -17,8 +17,10 @@ host = 0.0.0.0
 port = 5099
 # 是否开启 Flask 调试模式：0=关闭，1=开启
 debug = 0
-# 服务器公网出口 IP（源 API 实际看到的来源 IP）
-egress_ip = 104.168.95.41
+# 服务器公网出口 IP（源 API 实际看到的来源 IP）。留空则运行时自动探测。
+egress_ip =
+# 可信反向代理地址。只有来自这些地址的转发头才会被信任。
+trusted_proxies = 127.0.0.1,::1
 
 [gunicorn]
 # 生产模式（gunicorn）监听地址与端口，由 Caddy 反代到此地址
@@ -53,8 +55,8 @@ rp_name = APIMiao
 origin = http://localhost:5099
 
 [security]
-# 会话签名密钥。留空则每次启动随机生成（重启后所有登录失效）。
-# 生产环境务必填一个长随机字符串，例如：openssl rand -hex 32
+# 会话签名密钥。留空时首次运行生成到 data/secret_key（权限 0600），多 worker 共享。
+# 生产环境也可显式填一个长随机字符串，例如：openssl rand -hex 32
 secret_key =
 # 生产走 HTTPS 时设为 true，本地开发保持 false
 cookie_secure = false

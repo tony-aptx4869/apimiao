@@ -1,13 +1,12 @@
-"""API Manager：列表、创建、编辑、删除、API Test。"""
+"""API Manager：列表、创建、编辑、删除。"""
 import json
 import re
 
-import httpx
 from flask import redirect, render_template, request, session, url_for
 
 from config import endpoint_prefix
-from ..db import api_config, all_rows, execute, new_id, one, save_api_config, utcnow
-from ..utils import error, ok, placeholders, require_login, valid_endpoint, merge_url_params
+from ..db import api_config, all_rows, execute, new_id, one, utcnow
+from ..utils import error, ok, placeholders, require_login, valid_endpoint, PLACEHOLDER_RE
 from . import bp
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
@@ -40,12 +39,25 @@ def _as_bool(value, default=True):
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _number(value, cast, default, low, high):
+    """安全解析数值字段，失败返回 None。"""
+    try:
+        text = str(value).strip() if value is not None else ""
+        result = cast(text or default)
+    except (TypeError, ValueError):
+        return None
+    return max(low, min(result, high))
+
+
 def _validate_payload(data, api_type):
     endpoint = (data.get("endpoint") or "").strip()
     method = (data.get("method") or "").upper()
     original_url = (data.get("original_url") or "").strip()
     if not valid_endpoint(endpoint):
         return None, "Invalid API Endpoint"
+    tokens = PLACEHOLDER_RE.findall(endpoint)
+    if len(tokens) != len(set(tokens)):
+        return None, "Duplicate placeholder in endpoint"
     if method not in METHODS:
         return None, "Invalid Method"
     if not original_url.startswith(("http://", "https://")):
@@ -64,14 +76,16 @@ def _validate_payload(data, api_type):
         "body": data.get("body") or "",
         "body_enabled": _as_bool(data.get("body_enabled"), True),
         "accept_encoding": data.get("accept_encoding") if data.get("accept_encoding") in ("auto", "gzip", "pass") else "auto",
-        "timeout": max(1, min(int(data.get("timeout") or 10), 120)),
-        "retry": max(0, min(int(data.get("retry") or 0), 5)),
-        "rate_limit": max(0, min(int(data.get("rate_limit") or 0), 100000)),
-        "cache_time": max(0, min(float(data.get("cache_time") or 0), 604800)),
+        "timeout": _number(data.get("timeout"), int, 10, 1, 120),
+        "retry": _number(data.get("retry"), int, 0, 0, 5),
+        "rate_limit": _number(data.get("rate_limit"), int, 0, 0, 100000),
+        "cache_time": _number(data.get("cache_time"), float, 0, 0, 604800),
         "cache_unit": data.get("cache_unit") if data.get("cache_unit") in ("min", "sec") else "sec",
         "param_conflict": data.get("param_conflict") or "user",
         "passthrough": _as_bool(data.get("passthrough"), True),
     }
+    if any(cfg[k] is None for k in ("timeout", "retry", "rate_limit", "cache_time")):
+        return None, "Invalid numeric field"
     if cfg["original_method"] not in METHODS:
         return None, "Invalid Original API Method"
     if api_type == "PROXY":
@@ -210,83 +224,4 @@ def api_bulk_delete():
     for api_id in ids:
         execute("DELETE FROM apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
     return ok()
-
-
-@bp.route("/api/apis/test", methods=["POST"])
-def api_test():
-    """API Test：用占位符键值对真实请求一次源 API，保存键值对供日后复用。
-
-    测试请求与真实转发保持一致：应用配置的 Params/Header/Cookie 和 {{o-api-key}}。
-    """
-    gate = require_login()
-    if gate:
-        return gate
-    # 延迟导入，避免 app/api/__init__.py 中 routes 先于 proxy 导入导致循环依赖
-    from .proxy import _fill, _pairs_to_dict
-    data = request.get_json(silent=True) or {}
-    # 占位符键值对（弹窗里填的）。前端传的字段名是 pairs，兼容旧的 params。
-    pairs = data.get("pairs") or data.get("params") or []
-    api_id = data.get("api_id") or ""
-    cfg = data.get("cfg") or {}
-    # 优先用前端传来的当前表单配置；没有则从数据库读取已保存的配置
-    if not cfg and api_id:
-        row = one("SELECT * FROM apis WHERE id = ? AND user_id = ?", (api_id, session["uid"]))
-        if row:
-            cfg = api_config(row)
-    url = (data.get("url") or cfg.get("original_url") or "").strip()
-    method = (data.get("method") or cfg.get("original_method") or "GET").upper()
-    o_api_key = cfg.get("original_key", "")
-
-    for p in pairs:
-        key = str(p.get("key") or "").strip()
-        if not key:
-            continue
-        execute(
-            "INSERT INTO api_test_params (user_id, api_id, key, value, created_at) VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(user_id, api_id, key) DO UPDATE SET value = excluded.value, created_at = excluded.created_at",
-            (session["uid"], api_id, key, str(p.get("value") or ""), utcnow()),
-        )
-
-    # 占位符值：弹窗键值对。URL 与 Params/Header/Cookie 都用它替换。
-    values = {str(p.get("key")): str(p.get("value") or "") for p in pairs if p.get("key")}
-    try:
-        url = _fill(url, values, o_api_key)
-        all_params = _pairs_to_dict(cfg.get("params", []), values, o_api_key)
-        headers = _pairs_to_dict(cfg.get("headers", []), values, o_api_key)
-        cookies = _pairs_to_dict(cfg.get("cookies", []), values, o_api_key)
-        # URL 自带的 query 与配置 Params 合并，防止 httpx 覆盖 URL 里的占位符参数
-        url, all_params = merge_url_params(url, all_params)
-        kwargs = {}
-        if all_params:
-            kwargs["params"] = all_params
-        if headers:
-            kwargs["headers"] = headers
-        if cookies:
-            kwargs["cookies"] = cookies
-        # Body（与 proxy 的 body_mode 处理保持一致）
-        body_mode = cfg.get("body_mode", "none")
-        if body_mode == "json" and cfg.get("body"):
-            kwargs["content"] = _fill(cfg["body"], values, o_api_key).encode("utf-8")
-            if "content-type" not in {k.lower() for k in headers}:
-                kwargs.setdefault("headers", {})["Content-Type"] = "application/json; charset=utf-8"
-        elif body_mode == "text" and cfg.get("body"):
-            kwargs["content"] = _fill(cfg["body"], values, o_api_key).encode("utf-8")
-        timeout = cfg.get("timeout", 10) or 10
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.request(method, url, **kwargs)
-        return ok(status=resp.status_code, headers=dict(resp.headers),
-                  body=resp.text, cookies=dict(resp.cookies))
-    except Exception as exc:
-        return error(f"Request failed: {exc}", 502)
-
-
-@bp.route("/api/apis/test-params")
-def api_test_params():
-    gate = require_login()
-    if gate:
-        return gate
-    api_id = request.args.get("api_id", "")
-    rows = all_rows("SELECT key, value FROM api_test_params WHERE user_id = ? AND api_id = ? ORDER BY created_at", (session["uid"], api_id))
-    return ok(params=[dict(r) for r in rows])
-
 

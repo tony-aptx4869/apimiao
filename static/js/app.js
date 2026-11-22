@@ -9,8 +9,15 @@ async function apiFetch(url, method = 'GET', body) {
   const opts = {method, headers: {'Content-Type': 'application/json'}};
   if (body !== undefined) opts.body = JSON.stringify(body);
   const resp = await fetch(url, opts);
-  try { return await resp.json(); }
+  if (resp.status === 401 || (resp.redirected && resp.url.includes('/login'))) {
+    location.href = '/login';
+    return {ok: false, error: 'Unauthorized'};
+  }
+  let data;
+  try { data = await resp.json(); }
   catch (e) { return {ok: false, error: 'Invalid response'}; }
+  if (!resp.ok && data && data.ok !== false) data.ok = false;
+  return data;
 }
 function apiPost(url, body) { return apiFetch(url, 'POST', body); }
 function apiDelete(url, body) { return apiFetch(url, 'DELETE', body); }

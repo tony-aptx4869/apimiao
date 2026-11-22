@@ -17,7 +17,7 @@
         <td class="endpoint-cell"><code>{{ prefix }}/{{ a.endpoint }}</code></td>
         <td><span class="tag tag-trans">TRANS User</span></td>
         <td>{{ a.auth }}</td>
-        <td class="date-cell"></td>
+        <td class="date-cell" data-utc="${esc(a.created_at||'')}"></td>
         <td class="note-cell">{{ a.note }}</td>
         <td class="row-actions">
           <a class="btn btn-xs btn-outline" href="{{ url_for('api.trans_user_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>

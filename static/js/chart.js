@@ -3,6 +3,12 @@
 (function () {
   'use strict';
 
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c];
+    });
+  }
+
   // 生成 SVG 图表。mode: 'bar' | 'line'
   window.drawChart = function (svg, days, values, mode) {
     if (!svg) return;
@@ -32,7 +38,7 @@
         var bh = h - pad - y;
         parts.push('<rect class="chart-bar" data-i="' + i + '" x="' + x + '" y="' + y +
           '" width="' + barW + '" height="' + bh + '" rx="2" fill="#378add">' +
-          '<title>' + days[i] + ': ' + v + '</title></rect>');
+          '<title>' + esc(days[i]) + ': ' + esc(v) + '</title></rect>');
       });
     } else {
       // 折线 + 圆点
@@ -41,7 +47,7 @@
       points.forEach(function (p, i) {
         parts.push('<circle class="chart-dot" data-i="' + i + '" cx="' + p[0] + '" cy="' + p[1] +
           '" r="4" fill="#378add" stroke="#fff" stroke-width="1.5">' +
-          '<title>' + days[i] + ': ' + values[i] + '</title></circle>');
+          '<title>' + esc(days[i]) + ': ' + esc(values[i]) + '</title></circle>');
       });
     }
 
@@ -52,7 +58,7 @@
         // X 轴只显示 MM-DD 节省空间（days 本身是完整 YYYY-MM-DD，tooltip 用完整值）
         var short = d.length >= 10 ? d.slice(5) : d;
         parts.push('<text x="' + points[i][0] + '" y="' + (h - 8) +
-          '" text-anchor="middle" font-size="11" fill="#888">' + short + '</text>');
+          '" text-anchor="middle" font-size="11" fill="#888">' + esc(short) + '</text>');
       }
     });
 
@@ -73,7 +79,7 @@
     targets.forEach(function (el) {
       el.addEventListener('mousemove', function (e) {
         var i = parseInt(el.getAttribute('data-i'), 10);
-        tip.innerHTML = '<b>' + days[i] + '</b><span>' + values[i] + '</span>';
+        tip.innerHTML = '<b>' + esc(days[i]) + '</b><span>' + esc(values[i]) + '</span>';
         tip.style.display = 'block';
         var box = svg.parentNode.getBoundingClientRect();
         tip.style.left = (e.clientX - box.left + 12) + 'px';

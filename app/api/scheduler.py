@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..db import all_rows
+from ..db import all_rows, one
 
 _scheduler = None
 SYNC_INTERVAL = 60
@@ -22,7 +22,7 @@ SYNC_INTERVAL = 60
 
 def _job(app, origin_id):
     """在 app context 内执行 TRANS Origin 采集。"""
-    from .db import one
+    from ..db import one
     from .trans_origin import run_batch
     with app.app_context():
         row = one("SELECT * FROM trans_origins WHERE id = ? AND enabled = 1", (origin_id,))
@@ -31,23 +31,24 @@ def _job(app, origin_id):
 
 
 def _trigger_for(cfg):
-    times = cfg.get("times") or []
-    hours, minutes = [], []
-    for ts in times:
-        try:
-            h, m = str(ts).split(":")
-            hours.append(str(int(h)))
-            minutes.append(str(int(m)))
-        except (ValueError, TypeError):
-            continue
-    if not hours:
-        return None
+    """每个 HH:MM 生成一个独立 trigger，避免 hour 与 minute 交叉组合。"""
+    triggers = []
     if cfg.get("frequency") == "WEEK":
         days = cfg.get("days") or []
         dow = ",".join(str(d) for d in days) if days else "*"
     else:
         dow = "*"
-    return CronTrigger(hour=",".join(hours), minute=",".join(minutes), day_of_week=dow)
+    for index, ts in enumerate(cfg.get("times") or []):
+        try:
+            h, m = str(ts).split(":")
+            hour, minute = int(h), int(m)
+            if not (0 <= hour <= 23 and 0 <= minute <= 59):
+                continue
+            trigger = CronTrigger(hour=str(hour), minute=str(minute), day_of_week=dow)
+        except (ValueError, TypeError):
+            continue
+        triggers.append((f"t{index}_{hour:02d}{minute:02d}", trigger))
+    return triggers
 
 
 def _origin_schedule(row):
@@ -69,9 +70,8 @@ def sync_jobs(app):
         rows = all_rows("SELECT id, frequency, days_json, times_json FROM trans_origins WHERE enabled = 1")
         desired = {}
         for row in rows:
-            trigger = _trigger_for(_origin_schedule(row))
-            if trigger is not None:
-                desired[f"trans_{row['id']}"] = (row["id"], trigger)
+            for suffix, trigger in _trigger_for(_origin_schedule(row)):
+                desired[f"trans_{row['id']}_{suffix}"] = (row["id"], trigger)
 
     current = {job.id for job in _scheduler.get_jobs() if job.id.startswith("trans_")}
     for job_id in current - set(desired):

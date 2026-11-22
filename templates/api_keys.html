@@ -57,7 +57,7 @@ function openKeyModal(mode, id, name) {
   const title = document.getElementById('keyModalTitle');
   const body = document.getElementById('keyModalBody');
   title.textContent = mode === 'create' ? T.create : T.rename;
-  body.innerHTML = '<label>' + T.name + '<input id="keyNameInput" value="' + (name || '') + '"></label>';
+  body.innerHTML = '<label>' + T.name + '<input id="keyNameInput" value="' + esc(name || '') + '"></label>';
   document.getElementById('keyModal').dataset.mode = mode;
   document.getElementById('keyModal').dataset.id = id || '';
   document.getElementById('keyModal').classList.add('show');

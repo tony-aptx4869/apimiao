@@ -113,9 +113,9 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/trans_origin_form.js') }}?v=20261122a"></script>
 <script>
 window.ORIGIN_INIT = {{ (cfg|tojson) if cfg else '{}' }};
 window.ORIGIN_ID = {{ (origin.id|tojson) if origin and origin.id else 'null' }};
 </script>
+<script src="{{ url_for('static', filename='js/trans_origin_form.js') }}?v=20261122a"></script>
 {% endblock %}

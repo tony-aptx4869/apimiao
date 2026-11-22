@@ -1,5 +1,6 @@
 """SQLite 存储层。WAL 模式 + 外键约束，UTC 时间统一 ISO8601 字符串。"""
 import json
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
@@ -220,11 +221,13 @@ CREATE INDEX IF NOT EXISTS idx_rate_key_time ON rate_limit_hits(key_hash, hit_at
 def _write_initial_password(pwd: str):
     """初始密码落盘（仅首次），方便用户忘记终端输出时找回。"""
     try:
-        (DB_PATH.parent / "initial_password.txt").write_text(
+        path = DB_PATH.parent / "initial_password.txt"
+        path.write_text(
             f"ADMIN email: {ADMIN_EMAIL}\nInitial password: {pwd}\n"
             "Change it on first login, then delete this file.\n",
             encoding="utf-8",
         )
+        os.chmod(path, 0o600)
     except OSError:
         pass
 

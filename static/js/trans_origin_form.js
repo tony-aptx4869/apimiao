@@ -93,11 +93,10 @@ $('listApply')?.addEventListener('click',()=>{
   let items=[];
   clearError();
   const raw=$('listRaw').value.trim();
-  if(raw){
+  items=[...$('listItems').children].map(r=>r.querySelector('.li-v').value.trim()).filter(Boolean);
+  if(!items.length && raw){
     try{ items=parseList(raw); }
     catch(e){ showError('列表解析失败：'+e.message); return; }
-  } else {
-    items=[...$('listItems').children].map(r=>r.querySelector('.li-v').value.trim()).filter(Boolean);
   }
   if(!items.length){ showError('列表不能为空'); return; }
   editingRow._items=items; editingRow._isList=true;

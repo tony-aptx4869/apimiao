@@ -153,8 +153,26 @@ def is_admin() -> bool:
     return session.get("role") == "ADMIN"
 
 
+def _live_user():
+    """按 session 中的 uid 读取当前用户，并同步角色与邮箱。"""
+    uid = session.get("uid")
+    if not uid:
+        return None
+    from .db import one
+    user = one("SELECT * FROM users WHERE id = ?", (uid,))
+    if not user:
+        session.clear()
+        return None
+    if session.get("role") != user["role"]:
+        session["role"] = user["role"]
+    if session.get("email") != user["email"]:
+        session["email"] = user["email"]
+    return user
+
+
 def require_login():
-    if not session.get("uid"):
+    user = _live_user()
+    if not user:
         if request.is_json or request.path.startswith("/api/"):
             return error("Unauthorized", 401)
         return redirect(url_for("auth.login"))
