@@ -29,8 +29,8 @@
         <td class="date-cell" data-utc="{{ a.created_at }}"></td>
         <td class="note-cell">{{ a.note }}</td>
         <td class="row-actions">
-          <a class="btn btn-xs btn-outline edit-api" href="{{ url_for('api.api_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
           <a class="btn btn-xs btn-outline copy-api" href="{{ url_for('api.api_new', copy_from=a.id) }}" title="{{ t('common.copy') }}"><i class="bi bi-plus-square"></i> {{ t('common.copy') }}</a>
+          <a class="btn btn-xs btn-outline edit-api" href="{{ url_for('api.api_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
           <button class="btn btn-xs btn-danger del-api">{{ t('common.delete') }}</button>
         </td>
       </tr>

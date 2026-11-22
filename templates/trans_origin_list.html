@@ -16,7 +16,7 @@
 <script>
 const ORIGINS = {{ origins|tojson }};
 const LABELS = { method: '{{ t("api.method") }}', url: 'Original API URL',
-  type: window.LANG_ZH ? '类型' : 'Type', auth: 'Auth', created: '{{ t("api.created") }}', note: '{{ t("api.note") }}',
+  type: window.LANG_ZH ? '类型' : 'Type', created: '{{ t("api.created") }}', note: '{{ t("api.note") }}',
   ops: '{{ t("common.operations") }}', edit: '{{ t("common.edit") }}', copy: '{{ t("common.copy") }}', del: '{{ t("common.delete") }}' };
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function urlParts(u){
@@ -39,18 +39,17 @@ function render(){
       <td><span class="method method-${esc(o.original_method)}">${esc(o.original_method)}</span></td>
       <td class="url-cell"><code>${esc(o.original_url)}</code></td>
       <td><span class="tag tag-trans">TRANS Origin</span></td>
-      <td>—</td>
       <td class="date-cell" data-utc="${esc(o.created_at||'')}"></td>
       <td>${esc(o.note)}</td>
       <td class="row-actions">
-        <a class="btn btn-xs btn-outline" href="/panel/trans-origin/new?copy_from=${esc(o.id)}">${esc(LABELS.copy)}</a>
+        <a class="btn btn-xs btn-outline" href="/panel/trans-origin/new?copy_from=${esc(o.id)}"><i class="bi bi-plus-square"></i> ${esc(LABELS.copy)}</a>
         <a class="btn btn-xs btn-outline" href="/panel/trans-origin/${esc(o.id)}/edit">${esc(LABELS.edit)}</a>
         <button class="btn btn-xs btn-danger" onclick="delOrigin('${esc(o.id)}')">${esc(LABELS.del)}</button>
       </td></tr>`).join('');
     return `<div class="group-block" data-group="${i}">
       <div class="group-head" onclick="this.nextElementSibling.classList.toggle('collapsed')"><i class="bi bi-chevron-down"></i> <code>${esc(host)}</code> <span class="muted">(${g._items.length})</span></div>
       <div class="group-body"><div class="table-wrap"><table class="data-table">
-        <thead><tr><th><input type="checkbox" class="head-check"></th><th>${esc(LABELS.method)}</th><th>${esc(LABELS.url)}</th><th>${esc(LABELS.type)}</th><th>${esc(LABELS.auth)}</th><th>${esc(LABELS.created)}</th><th>${esc(LABELS.note)}</th><th class="row-actions-head">${esc(LABELS.ops)}</th></tr></thead>
+        <thead><tr><th><input type="checkbox" class="head-check"></th><th>${esc(LABELS.method)}</th><th>${esc(LABELS.url)}</th><th>${esc(LABELS.type)}</th><th>${esc(LABELS.created)}</th><th>${esc(LABELS.note)}</th><th class="row-actions-head">${esc(LABELS.ops)}</th></tr></thead>
         <tbody>${rows}</tbody></table></div></div></div>`;
   }).join('') || `<p class="empty">No TRANS Origin APIs yet.</p>`;
   document.querySelectorAll('.head-check').forEach(h=>h.onclick=()=>{

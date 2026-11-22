@@ -33,6 +33,7 @@
 <h2>{{ t('trans.section.data_source') }}</h2>
 <div id="dataFeedback" class="alert alert-info" style="display:none"></div>
 <button type="button" class="btn btn-outline" id="chooseSheetsBtn">{{ t('trans.choose_sheets') }}</button>
+<p class="hint">{{ '选择数据表后，可拖动字段到 Params 或返回数据树。只有选择两张及以上数据表时，才能把一张表的字段拖到另一张表字段上建立 Join。' if LANG() == 'zh' else 'After choosing sheets, drag fields into Params or the output tree. Joins require fields from two different sheets.' }}</p>
 <div id="sheetViews" class="sheet-views"></div>
 <div class="mapping-grid">
   <div class="mapping-target">

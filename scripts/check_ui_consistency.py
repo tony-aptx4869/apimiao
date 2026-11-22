@@ -50,6 +50,33 @@ def source_has_native_dialogs():
     return hits
 
 
+def ordered(text, *markers):
+    positions = [text.find(marker) for marker in markers]
+    return all(pos >= 0 for pos in positions) and positions == sorted(positions)
+
+
+def source_contracts():
+    proxy = (ROOT / "templates/api_manager.html").read_text(encoding="utf-8")
+    origin = (ROOT / "templates/trans_origin_list.html").read_text(encoding="utf-8")
+    user = (ROOT / "templates/trans_user_list.html").read_text(encoding="utf-8")
+    form = (ROOT / "templates/trans_user_form.html").read_text(encoding="utf-8")
+    js = (ROOT / "static/js/trans_user_form.js").read_text(encoding="utf-8")
+    return {
+        "proxy_action_order": ordered(proxy, 'class="btn btn-xs btn-outline copy-api"',
+                                      'class="btn btn-xs btn-outline edit-api"',
+                                      'class="btn btn-xs btn-danger del-api"'),
+        "origin_no_auth": "LABELS.auth" not in origin and ">${esc(LABELS.auth)}</th>" not in origin,
+        "origin_copy_action": '<i class="bi bi-plus-square"></i> ${esc(LABELS.copy)}' in origin
+                              and ordered(origin, "bi-plus-square", "LABELS.edit", "delOrigin"),
+        "user_endpoint_copy": "copy-endpoint" in user and "copy-url" in user
+                              and "location.origin + '/' + b.dataset.path" in user,
+        "user_copy_action": '<i class="bi bi-plus-square"></i> {{ t(\'common.copy\') }}' in user,
+        "form_chinese_hints": "选择数据表后，可拖动字段到 Params 或返回数据树" in form,
+        "single_sheet_join_guard": "selectedSheets.length < 2" in js
+                                   and "src.sheet===target.dataset.sheet" in js,
+    }
+
+
 def run():
     app = create_app()
     with app.app_context():
@@ -126,6 +153,9 @@ def run():
 
     record("no_native_browser_dialogs", source_has_native_dialogs() == [],
            f"files={source_has_native_dialogs()}")
+    contracts = source_contracts()
+    for name, ok in contracts.items():
+        record(name, ok, "")
 
     print(json.dumps(RESULT, ensure_ascii=False, indent=2))
     return 0 if all(item["ok"] for item in RESULT) else 1

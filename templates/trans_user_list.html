@@ -16,13 +16,17 @@
       <tr data-id="{{ a.id }}">
         <td><input type="checkbox" class="row-check"></td>
         <td><span class="method method-{{ a.method }}">{{ a.method }}</span></td>
-        <td class="endpoint-cell"><code>{{ prefix }}/{{ a.endpoint }}</code></td>
+        <td class="endpoint-cell">
+          <code>{{ prefix }}/{{ a.endpoint }}</code>
+          <button type="button" class="copy-endpoint" title="{{ '复制 Endpoint' if LANG() == 'zh' else 'Copy Endpoint' }}" data-path="{{ prefix }}/{{ a.endpoint }}" aria-label="copy"><i class="bi bi-copy"></i></button>
+          <button type="button" class="copy-url" title="{{ '复制完整 API URL' if LANG() == 'zh' else 'Copy full API URL' }}" data-path="{{ prefix }}/{{ a.endpoint }}" aria-label="copy-url"><i class="bi bi-link"></i></button>
+        </td>
         <td><span class="tag tag-trans">TRANS User</span></td>
         <td class="auth-cell" data-auth="{{ a.auth }}">—</td>
         <td class="date-cell" data-utc="{{ a.created_at }}"></td>
         <td class="note-cell">{{ a.note }}</td>
         <td class="row-actions">
-          <a class="btn btn-xs btn-outline" href="/panel/trans-user/new?copy_from={{ a.id }}">{{ t('common.copy') }}</a>
+          <a class="btn btn-xs btn-outline" href="/panel/trans-user/new?copy_from={{ a.id }}"><i class="bi bi-plus-square"></i> {{ t('common.copy') }}</a>
           <a class="btn btn-xs btn-outline" href="{{ url_for('api.trans_user_edit', api_id=a.id) }}">{{ t('common.edit') }}</a>
           <button class="btn btn-xs btn-danger del-api" data-id="{{ a.id }}">{{ t('common.delete') }}</button>
         </td>
@@ -56,5 +60,19 @@ document.querySelectorAll('.del-api').forEach(b => b.onclick = async () => {
   const r = await apiFetch('/api/trans-apis/' + b.dataset.id, 'DELETE');
   if (r.ok) location.reload(); else await uiAlert(r.error);
 });
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+  }
+  const old = btn.innerHTML;
+  btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+  setTimeout(() => { btn.innerHTML = old; }, 1200);
+}
+document.querySelectorAll('.copy-endpoint').forEach(b => b.onclick = () => copyText(b.dataset.path, b));
+document.querySelectorAll('.copy-url').forEach(b => b.onclick = () => copyText(location.origin + '/' + b.dataset.path, b));
 </script>
 {% endblock %}

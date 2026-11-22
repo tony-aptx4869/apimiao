@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 const INIT = window.USER_INIT || {};
 const USER_ID = window.USER_ID || null;
+const ZH = window.LANG_ZH === true;
 let availableSheets = (window.ALL_SHEETS || []).slice();
 let selectedSheets = (INIT.sheet_ids || []).slice();
 let sheetFields = Object.assign({}, INIT.sheet_fields || {});
@@ -95,8 +96,8 @@ $('chooseSheetsBtn').onclick=async()=>{
   box.innerHTML=availableSheets.map(s=>{
     const checked=selectedSheets.includes(s.id)?'checked':'';
     const count=(s.fields||[]).length;
-    return `<label class="sheet-opt"><input type="checkbox" class="sheet-check" value="${esc(s.id)}" ${checked}> <b>${esc(s.name)}</b> <span class="muted">(${count} fields)</span></label>`;
-  }).join('')||'<p class="empty">No Data Sheets yet. Create one first.</p>';
+    return `<label class="sheet-opt"><input type="checkbox" class="sheet-check" value="${esc(s.id)}" ${checked}> <b>${esc(s.name)}</b> <span class="muted">(${count} ${ZH?'个字段':'fields'})</span></label>`;
+  }).join('')||`<p class="empty">${ZH?'暂无数据表，请先创建数据表。':'No Data Sheets yet. Create one first.'}</p>`;
   $('sheetsModal').classList.add('show');
 };
 $('sheetsCancel').onclick=()=>$('sheetsModal').classList.remove('show');
@@ -115,10 +116,10 @@ function renderSheetViews(){
       const on=(sheetFields[sid]||{})[f.id]!==false;
       return `<div class="schema-field" draggable="true" data-sheet="${esc(sid)}" data-field="${esc(f.key)}" data-field-id="${esc(f.id)}">
         <span>${esc(f.key)}</span>
-        <button type="button" class="dot ${on?'on':'off'}" data-sheet="${esc(sid)}" data-field-id="${esc(f.id)}" title="toggle projection"></button>
+        <button type="button" class="dot ${on?'on':'off'}" data-sheet="${esc(sid)}" data-field-id="${esc(f.id)}" title="${ZH?'切换字段是否输出':'toggle projection'}"></button>
       </div>`;
     }).join('');
-    return `<div class="schema-card"><div class="schema-title">${esc(meta.name)}</div>${fields||'<div class="hint">No fields</div>'}</div>`;
+    return `<div class="schema-card"><div class="schema-title">${esc(meta.name)}</div>${fields||`<div class="hint">${ZH?'暂无字段':'No fields'}</div>`}</div>`;
   }).join('');
   box.querySelectorAll('.dot').forEach(d=>d.onclick=()=>{
     const sid=d.dataset.sheet, fieldId=d.dataset.fieldId;
@@ -136,14 +137,23 @@ function renderSheetViews(){
     p.ondragover=e=>e.preventDefault();
     p.ondrop=e=>{
       e.preventDefault();
-      const src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}');
+      let src;
+      try { src=JSON.parse(e.dataTransfer.getData('text/plain')||'{}'); } catch(_) { return; }
       const target=e.target.closest('.schema-field');
       if(!src.field_id||!target||!target.dataset.fieldId) return;
+      if(selectedSheets.length < 2){
+        feedback(ZH?'单张数据表无需建立 Join，字段只需拖到 Params 或返回数据树。':'A single sheet does not need a Join. Drag fields to Params or the output tree.');
+        return;
+      }
+      if(src.sheet===target.dataset.sheet || src.field_id===target.dataset.fieldId){
+        feedback(ZH?'Join 只能连接不同数据表的字段。':'Joins require fields from different data sheets.');
+        return;
+      }
       joins.push({
         left_sheet:src.sheet, left_field:src.field, left_field_id:src.field_id,
         right_sheet:target.dataset.sheet, right_field:target.dataset.field, right_field_id:target.dataset.fieldId
       });
-      feedback('Join added: '+src.field+' = '+target.dataset.field);
+      feedback((ZH?'已添加 Join：':'Join added: ')+src.field+' = '+target.dataset.field);
       renderTargets();
     };
   });
