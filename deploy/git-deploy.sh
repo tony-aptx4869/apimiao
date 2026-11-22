@@ -64,6 +64,12 @@ systemctl restart apimiao apimiao-scheduler
 
 echo "[APIMiao] Health check"
 systemctl is-active apimiao apimiao-scheduler caddy
+for _ in $(seq 1 20); do
+  if curl -fsS -o /dev/null http://127.0.0.1:8080/; then
+    break
+  fi
+  sleep 1
+done
 curl -fsS -o /dev/null http://127.0.0.1:8080/
 echo "$TARGET" > .last_deploy
 echo "[APIMiao] Deployed $TARGET"
