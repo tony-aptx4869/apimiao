@@ -281,7 +281,7 @@ def trans_origin_fetch_preview():
     data = request.get_json(silent=True) or {}
     cfg = _payload_config(data)
     cfg["fields"] = _sheet_field_config(session["uid"], cfg["sheet_id"])
-    result = to.fetch_preview(cfg)
+    result = to.fetch_preview(cfg, session["uid"])
     return ok(**result)
 
 

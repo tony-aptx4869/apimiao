@@ -4,6 +4,7 @@ from datetime import timedelta
 from flask import render_template, request, session
 
 from ..db import all_rows, one, execute, utcnow
+from ..i18n import t
 from ..utils import cutoff_iso, error, ok, require_login, require_admin, gen_api_key, hash_api_key, local_day
 from config import endpoint_prefix
 from . import bp
@@ -155,6 +156,34 @@ def logs_query():
     date_from = (request.args.get("date_from") or "").strip()   # 本地日期 YYYY-MM-DD（含）
     date_to = (request.args.get("date_to") or "").strip()       # 本地日期 YYYY-MM-DD（含）
 
+    has_filter = any([
+        method and method != "ALL", status and status != "ALL",
+        event and event != "ALL", key_id and key_id != "ALL", date_from, date_to,
+    ])
+    scope = t("logs.scope_filtered") if has_filter else t("logs.scope_365")
+    scope_parts = []
+    if date_from and date_to:
+        scope_parts.append(f"{date_from} ~ {date_to}")
+    elif date_from:
+        scope_parts.append(t("logs.scope_from", value=date_from))
+    elif date_to:
+        scope_parts.append(t("logs.scope_to", value=date_to))
+    if method and method != "ALL":
+        scope_parts.append(method)
+    if status and status != "ALL":
+        if status == "SUCCESS":
+            scope_parts.append(t("logs.success_opt"))
+        elif status == "FAILED":
+            scope_parts.append(t("logs.failed_opt"))
+        else:
+            scope_parts.append(status)
+    if event and event != "ALL":
+        scope_parts.append(t("logs.event_opt." + event.lower(), default=event))
+    if key_id and key_id != "ALL":
+        key_name = next((k["name"] for k in key_options if str(k["id"]) == key_id), key_id)
+        scope_parts.append(f'{t("logs.api_key")}: {key_name}')
+    scope_detail = " · ".join(scope_parts) if scope_parts else t("logs.scope_365")
+
     def match(r):
         if date_from or date_to:
             day = local_day(r["created_at"])
@@ -211,7 +240,8 @@ def logs_query():
         key=lambda r: r["created_at"], reverse=True)[:200]]
     return ok(total=total, success=success, failed=failed, days=days,
               daily=[daily[d] for d in days], top=[{"endpoint": k, "count": v} for k, v in top],
-              history=history, upstream=upstream, key_options=key_options)
+              history=history, upstream=upstream, key_options=key_options,
+              stat_scope=scope, stat_scope_detail=scope_detail)
 
 
 @bp.route("/panel/users")

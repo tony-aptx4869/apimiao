@@ -8,11 +8,12 @@ import hashlib
 import itertools
 import json
 import time
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 import httpx
 
 from config import CARTESIAN_LIMIT
-from ..db import all_rows, canonical_params, get_db, new_id, one, utcnow
+from ..db import all_rows, canonical_params, get_db, log_request, new_id, one, utcnow
 from ..json_path import classify_json_type, iter_terminal_paths, resolve_root
 from ..utils import PLACEHOLDER_RE, merge_url_params
 
@@ -202,6 +203,42 @@ def build_request(cfg, values=None):
     return cfg.get("original_method", "GET"), url, kwargs
 
 
+SENSITIVE_QUERY_KEYS = {
+    "key", "api_key", "apikey", "token", "access_key", "accesskey", "secret", "password"
+}
+
+
+def redact_request_url(cfg, values=None):
+    """Return (method, endpoint) with secrets removed from the query string."""
+    method, url, kwargs = build_request(cfg, values)
+    parts = urlsplit(url)
+    api_key = str(cfg.get("original_key") or "")
+    raw_pairs = parse_qsl(parts.query, keep_blank_values=True)
+    for key, value in (kwargs.get("params") or {}).items():
+        raw_pairs.append((str(key), str(value)))
+    pairs = []
+    for key, value in raw_pairs:
+        lowered = key.strip().lower()
+        if lowered in SENSITIVE_QUERY_KEYS or (api_key and value == api_key):
+            continue
+        pairs.append((key, value))
+    query = unquote(urlencode(pairs, doseq=True))
+    endpoint = urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+    return method, endpoint
+
+
+def log_upstream_request(cfg, values, status, success, duration_ms, origin=None):
+    """Write one UPSTREAM_TRANS request log with secrets removed."""
+    user_id = (origin or {}).get("user_id") or cfg.get("user_id")
+    if not user_id:
+        return
+    method, endpoint = redact_request_url(cfg, values)
+    log_request(
+        user_id, (origin or {}).get("id") or cfg.get("id") or "", method, endpoint,
+        status, success, duration_ms, "", event_type="UPSTREAM_TRANS",
+    )
+
+
 def do_request(cfg, values=None):
     """发一次请求，返回 (status, headers, cookies, body_text, duration_ms, error)。"""
     method, url, kwargs = build_request(cfg, values)
@@ -304,6 +341,7 @@ def collect_batch(origin, cfg_override=None, combos_override=None):
             except (ValueError, TypeError) as exc:
                 success, biz_err = False, str(exc)
         err_msg = net_err or biz_err
+        log_upstream_request(cfg, combo, status, success, duration, origin)
         items.append({"combo": combo, "status": status, "success": success,
                       "error": err_msg, "duration": duration})
         if success:
@@ -401,7 +439,7 @@ def run_batch(origin, triggered_by="SCHEDULE", cfg_override=None, save_data=True
 
 
 
-def fetch_preview(cfg):
+def fetch_preview(cfg, user_id=""):
     """Fetch Data：只发列表第一个值，返回字段预览（不入库）。"""
     pairs, err = normalize_pairs(json.loads(cfg.get("params_json", "[]")))
     if err:
@@ -414,6 +452,8 @@ def fetch_preview(cfg):
         success, biz_err = judge_success(status, body or "")
     except (ValueError, TypeError) as exc:
         success, biz_err = False, str(exc)
+    if user_id:
+        log_upstream_request({**cfg, "user_id": user_id}, values, status, success, duration)
     if net_err:
         return {"ok": False, "error": net_err, "status": status}
     try:

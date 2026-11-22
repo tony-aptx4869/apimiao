@@ -3,9 +3,9 @@
 {% block panel %}
 <h1 class="page-title">{{ t('panel.logs') }}</h1>
 <div class="stat-grid stat-grid-3">
-  <div class="stat-card"><div class="stat-label">365d {{ t('logs.total') }}</div><div class="stat-value" id="statTotal">0</div></div>
-  <div class="stat-card"><div class="stat-label">365d {{ t('logs.success') }}</div><div class="stat-value success" id="statSuccess">0</div></div>
-  <div class="stat-card"><div class="stat-label">365d {{ t('logs.failed') }}</div><div class="stat-value danger" id="statFailed">0</div></div>
+  <div class="stat-card"><div class="stat-label" id="statTotalLabel">{{ t('logs.scope_365') }}{{ t('logs.total_requests') }}</div><div class="stat-value" id="statTotal">0</div><div class="stat-sub stat-scope-detail">{{ t('logs.scope_365') }}</div></div>
+  <div class="stat-card"><div class="stat-label" id="statSuccessLabel">{{ t('logs.scope_365') }}{{ t('logs.success_count') }}</div><div class="stat-value success" id="statSuccess">0</div><div class="stat-sub stat-scope-detail">{{ t('logs.scope_365') }}</div></div>
+  <div class="stat-card"><div class="stat-label" id="statFailedLabel">{{ t('logs.scope_365') }}{{ t('logs.failed_count') }}</div><div class="stat-value danger" id="statFailed">0</div><div class="stat-sub stat-scope-detail">{{ t('logs.scope_365') }}</div></div>
 </div>
 <div class="panel-card">
   <div class="chart-head">
@@ -82,6 +82,12 @@ async function loadLogs() {
   const r = await apiGet('/api/logs/query?' + p);
   if (!r.ok) return;
   cached = r;
+  const scope = r.stat_scope || '{{ t("logs.scope_365") }}';
+  const detail = r.stat_scope_detail || scope;
+  document.getElementById('statTotalLabel').textContent = scope + '{{ t("logs.total_requests") }}';
+  document.getElementById('statSuccessLabel').textContent = scope + '{{ t("logs.success_count") }}';
+  document.getElementById('statFailedLabel').textContent = scope + '{{ t("logs.failed_count") }}';
+  document.querySelectorAll('.stat-scope-detail').forEach(el => { el.textContent = detail; });
   document.getElementById('statTotal').textContent = r.total;
   document.getElementById('statSuccess').textContent = r.success;
   document.getElementById('statFailed').textContent = r.failed;
@@ -110,12 +116,15 @@ const PER_PAGE_OPTIONS = [5, 10, 20, 50, 100];
 function createPager(pagerId, bodyId, rowHtml, colspan, emptyText) {
   const st = { rows: [], page: 1, perPage: 10 };
   function pageNumbers(total, cur) {
-    // 最多 5 个页码按钮，尽量让当前页居中
-    let start = Math.max(1, cur - 2), end = Math.min(total, start + 4);
-    start = Math.max(1, end - 4);
-    const out = [];
-    for (let i = start; i <= end; i++) out.push(i);
-    return out;
+    // 最多 5 个数字按钮，首尾固定，中间用省略号动态聚焦当前页
+    if (total <= 5) {
+      const out = [];
+      for (let i = 1; i <= total; i++) out.push(i);
+      return out;
+    }
+    if (cur <= 3) return [1, 2, 3, 4, 5, '…', total];
+    if (cur >= total - 2) return [1, '…', total - 4, total - 3, total - 2, total - 1, total];
+    return [1, '…', cur - 1, cur, cur + 1, '…', total];
   }
   function draw() {
     const totalPages = Math.max(1, Math.ceil(st.rows.length / st.perPage));
@@ -134,6 +143,7 @@ function createPager(pagerId, bodyId, rowHtml, colspan, emptyText) {
     const next = '<button type="button" class="pager-btn" data-act="next" title="Next"><i class="bi bi-caret-right"></i></button>';
     const last = '<button type="button" class="pager-btn" data-act="last" title="Last"><i class="bi bi-caret-right-fill"></i></button>';
     const nums = pageNumbers(totalPages, st.page).map(n =>
+      n === '…' ? '<span class="pager-ellipsis">…</span>' :
       '<button type="button" class="pager-btn pager-num' + (n === st.page ? ' active' : '') + '" data-page="' + n + '">' + n + '</button>'
     ).join('');
     pager.innerHTML = sel + '<div class="pager-nav">' + first + prev + nums + next + last + '</div>';

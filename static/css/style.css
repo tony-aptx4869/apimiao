@@ -298,6 +298,7 @@ label.full input { width: 100%; }
 .pager-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 .pager-btn.active:hover { background: var(--primary); filter: brightness(1.15); }
 .pager-btn i { font-size: 15px; }
+.pager-ellipsis { min-width: 24px; text-align: center; color: var(--muted); }
 /* TRANS User data view: readable field cards and usable drop targets */
 .sheet-views { min-height: 240px; align-content: flex-start; }
 .sheet-views:empty::before { content: "Choose Data Sheets to view fields"; color: var(--muted); display: block; padding: 16px 0; }
