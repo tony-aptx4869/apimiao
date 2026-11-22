@@ -7,6 +7,7 @@ from ..db import all_rows, execute, new_id, one, utcnow
 from ..utils import error, ok, require_login
 from . import bp
 from . import trans_origin as to
+from ..data_sheets.service import get_sheet
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
@@ -36,7 +37,10 @@ def _origin_config(row):
         "timeout": row["timeout"], "retry": row["retry"],
         "request_interval": row["request_interval"],
         "frequency": row["frequency"], "days": load("days_json", "[]"),
-        "times": load("times_json", "[]"), "sheet_name": row["sheet_name"],
+        "times": load("times_json", "[]"),
+        "sheet_id": row["sheet_id"] if "sheet_id" in row.keys() else "",
+        "result_path": row["result_path"] if "result_path" in row.keys() else "",
+        "state": row["state"] if "state" in row.keys() else "DRAFT",
         "verified": row["verified"], "enabled": row["enabled"],
         "created_at": row["created_at"] if "created_at" in row.keys() else "",
     }
@@ -61,7 +65,8 @@ def _payload_config(data):
         "request_interval": _number(data.get("request_interval"), float, 0, 0, 3600),
         "frequency": str(data.get("frequency") or "DAY"),
         "days_json": dumps(data.get("days")), "times_json": dumps(data.get("times")),
-        "sheet_name": str(data.get("sheet_name") or "").strip(),
+        "sheet_id": str(data.get("sheet_id") or "").strip(),
+        "result_path": str(data.get("result_path") or "result").strip(),
     }
 
 
@@ -72,8 +77,12 @@ def _validate(cfg):
         return "Original API URL is required"
     if cfg["original_method"] not in METHODS:
         return "Invalid Original API method"
-    if not cfg["sheet_name"]:
-        return "Data Sheet Name is required"
+    if not cfg["sheet_id"]:
+        return "Data Sheet is required"
+    sheet = one("SELECT name FROM data_sheets WHERE id = ? AND user_id = ?",
+                (cfg["sheet_id"], session["uid"]))
+    if not sheet:
+        return "Data Sheet not found"
     # 时间格式 HH:mm
     for ts in json.loads(cfg["times_json"] or "[]"):
         try:
@@ -93,6 +102,16 @@ def _validate(cfg):
     except (ValueError, TypeError) as exc:
         return f"Invalid params: {exc}"
     return None
+
+
+def _sheet_field_config(user_id, sheet_id):
+    sheet = get_sheet(user_id, sheet_id)
+    if not sheet:
+        return []
+    return [
+        {"name": field["key"], "enabled": field["enabled"], "order": field["order"]}
+        for field in sheet["fields"]
+    ]
 
 
 # ---------------- 页面 ----------------
@@ -122,14 +141,8 @@ def trans_origin_edit(origin_id):
     if not row:
         return redirect(url_for("api.trans_origin_list"))
     cfg = _origin_config(row)
-    # 恢复 Data 区域字段配置
-    sheet = one("SELECT fields_json FROM data_sheets WHERE user_id = ? AND name = ?",
-                (session["uid"], row["sheet_name"]))
-    if sheet:
-        try:
-            cfg["fields"] = json.loads(sheet["fields_json"] or "[]")
-        except (ValueError, TypeError):
-            cfg["fields"] = []
+    # 字段配置由 Data Sheet 拥有
+    cfg["fields"] = _sheet_field_config(session["uid"], cfg["sheet_id"])
     return render_template("trans_origin_form.html", origin=dict(row), cfg=cfg)
 
 
@@ -141,8 +154,7 @@ def trans_origin_fetch_preview():
         return gate
     data = request.get_json(silent=True) or {}
     cfg = _payload_config(data)
-    # 字段配置（Data 区域用户设定的保存项）
-    cfg["fields_json"] = json.dumps(data.get("fields") or [], ensure_ascii=False)
+    cfg["fields"] = _sheet_field_config(session["uid"], cfg["sheet_id"])
     result = to.fetch_preview(cfg)
     return ok(**result)
 
@@ -164,8 +176,7 @@ def trans_origin_precheck():
     err = _validate(cfg)
     if err and not force:
         return error(err, 400)
-    fields = data.get("fields") or []
-    cfg["fields_json"] = json.dumps(fields, ensure_ascii=False)
+    cfg["fields"] = _sheet_field_config(session["uid"], cfg["sheet_id"])
 
     origin_id = data.get("id") or ""
     is_new = not origin_id
@@ -179,7 +190,7 @@ def trans_origin_precheck():
     collected = {"success": False, "total": 0, "failed": 0, "errors": [err] if err else [],
                  "items": [], "payloads": [], "field_names": []}
     if not err:
-        origin = {"id": origin_id, "user_id": session["uid"], "fields_json": cfg["fields_json"], **cfg}
+        origin = {"id": origin_id, "user_id": session["uid"], **cfg}
         collected = to.collect_batch(origin, cfg)
 
     if not collected["success"] and not force:
@@ -193,12 +204,8 @@ def trans_origin_precheck():
     _save_origin(origin_id, session["uid"], cfg, verified, is_new)
     batch_info = {"batch_id": "", "sheet_id": ""}
     if collected["success"]:
-        origin = {"id": origin_id, "user_id": session["uid"], "fields_json": cfg["fields_json"], **cfg}
+        origin = {"id": origin_id, "user_id": session["uid"], **cfg}
         batch_info = to.commit_batch(origin, cfg, collected, triggered_by="PRECHECK")
-    else:
-        # 应急：只建数据表结构，不写数据
-        to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                        [f["name"] for f in fields if f.get("enabled", True)], True)
     return ok(saved=True, verified=verified, id=origin_id, success=collected["success"],
               total=collected["total"], failed=collected["failed"],
               errors=collected["errors"], **batch_info)
@@ -206,17 +213,25 @@ def trans_origin_precheck():
 
 def _save_origin(origin_id, user_id, cfg, verified, is_new):
     """插入或更新 trans_origins 记录。"""
+    sheet = one("SELECT name FROM data_sheets WHERE id = ? AND user_id = ?",
+                (cfg["sheet_id"], user_id))
+    if not sheet:
+        raise ValueError("Data Sheet not found")
     cols = ("note", "original_url", "original_method", "original_key", "params_json",
             "headers_json", "cookies_json", "body_mode", "body", "encoding", "timeout",
-            "retry", "request_interval", "frequency", "days_json", "times_json", "sheet_name")
-    vals = [cfg[c] for c in cols]
+            "retry", "request_interval", "frequency", "days_json", "times_json",
+            "sheet_id", "result_path", "state")
+    vals = [cfg[c] for c in cols[:-1]] + ["VERIFIED" if verified else "DRAFT"]
+    legacy_name = sheet["name"]
     if is_new:
         sql = ("INSERT INTO trans_origins (id, user_id, " + ", ".join(cols) +
-               ", verified, enabled, created_at) VALUES (" + ", ".join(["?"] * (len(cols) + 5)) + ")")
-        execute(sql, (origin_id, user_id, *vals, verified, 1, utcnow()))
+               ", sheet_name, verified, enabled, created_at) VALUES (" +
+               ", ".join(["?"] * (len(cols) + 6)) + ")")
+        execute(sql, (origin_id, user_id, *vals, legacy_name, verified, 1, utcnow()))
     else:
-        sql = "UPDATE trans_origins SET " + ", ".join(f"{c}=?" for c in cols) + ", verified=? WHERE id=? AND user_id=?"
-        execute(sql, (*vals, verified, origin_id, user_id))
+        sql = ("UPDATE trans_origins SET " + ", ".join(f"{c}=?" for c in cols) +
+               ", sheet_name=?, verified=?, enabled=1 WHERE id=? AND user_id=?")
+        execute(sql, (*vals, legacy_name, verified, origin_id, user_id))
 
 
 @bp.route("/api/trans-origins", methods=["POST"])
@@ -231,24 +246,7 @@ def trans_origin_create():
         return error(err, 400)
     origin_id = new_id()
     verified = 1 if data.get("verified") else 0
-    execute(
-        "INSERT INTO trans_origins (id, user_id, note, original_url, original_method, original_key, "
-        "params_json, headers_json, cookies_json, body_mode, body, encoding, timeout, retry, "
-        "request_interval, frequency, days_json, times_json, sheet_name, verified, enabled, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
-        (origin_id, session["uid"], cfg["note"], cfg["original_url"], cfg["original_method"],
-         cfg["original_key"], cfg["params_json"], cfg["headers_json"], cfg["cookies_json"],
-         cfg["body_mode"], cfg["body"], cfg["encoding"], cfg["timeout"], cfg["retry"],
-         cfg["request_interval"], cfg["frequency"], cfg["days_json"], cfg["times_json"],
-         cfg["sheet_name"], verified, utcnow()),
-    )
-    # 创建数据表（若预检已采到数据，run_batch 预检 save_data=False 不建表；这里按默认字段建）
-    fields = data.get("fields") or []
-    if not fields:
-        preview = to.fetch_preview(cfg)
-        fields = [{"name": n, "enabled": True, "order": i} for i, n in enumerate(preview.get("fields", []))]
-    to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                    [f["name"] for f in fields if f.get("enabled", True)], True)
+    _save_origin(origin_id, session["uid"], cfg, verified, True)
     return ok(id=origin_id)
 
 
@@ -266,21 +264,7 @@ def trans_origin_update(origin_id):
     if err:
         return error(err, 400)
     verified = 1 if data.get("verified") else row["verified"]
-    execute(
-        "UPDATE trans_origins SET note=?, original_url=?, original_method=?, original_key=?, "
-        "params_json=?, headers_json=?, cookies_json=?, body_mode=?, body=?, encoding=?, "
-        "timeout=?, retry=?, request_interval=?, frequency=?, days_json=?, times_json=?, "
-        "sheet_name=?, verified=? WHERE id=? AND user_id=?",
-        (cfg["note"], cfg["original_url"], cfg["original_method"], cfg["original_key"],
-         cfg["params_json"], cfg["headers_json"], cfg["cookies_json"], cfg["body_mode"],
-         cfg["body"], cfg["encoding"], cfg["timeout"], cfg["retry"], cfg["request_interval"],
-         cfg["frequency"], cfg["days_json"], cfg["times_json"], cfg["sheet_name"],
-         verified, origin_id, session["uid"]),
-    )
-    fields = data.get("fields")
-    if fields is not None:
-        to.ensure_sheet(session["uid"], origin_id, cfg["sheet_name"],
-                        [f["name"] for f in fields if f.get("enabled", True)], True)
+    _save_origin(origin_id, session["uid"], cfg, verified, False)
     return ok()
 
 

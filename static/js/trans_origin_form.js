@@ -4,6 +4,7 @@ const INIT = window.ORIGIN_INIT || {};
 const ORIGIN_ID = window.ORIGIN_ID || null;
 let fieldConfig = INIT.fields || [];
 let fetchFields = [];
+let sheets = [];
 
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -14,6 +15,27 @@ function showError(msg){
   box.scrollIntoView({behavior:'smooth', block:'center'});
 }
 function clearError(){ const box=$('formError'); if(box){ box.style.display='none'; box.textContent=''; } }
+
+async function initSheets(){
+  const select=$('sheet_id');
+  if(!select) return;
+  const r=await apiFetch('/api/data-sheets');
+  if(!r.ok){ showError(r.error||'Failed to load data sheets'); return; }
+  sheets=r.sheets||[];
+  select.innerHTML=sheets.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const selected=sheets.find(s=>s.id===INIT.sheet_id)||sheets[0];
+  if(selected){
+    select.value=selected.id;
+    fieldConfig=(selected.fields||[]).map(f=>({name:f.key,enabled:f.enabled,order:f.order}));
+  }
+  select.onchange=()=>{
+    const current=sheets.find(s=>s.id===select.value);
+    fieldConfig=current?(current.fields||[]).map(f=>({name:f.key,enabled:f.enabled,order:f.order})):[];
+    renderFields();
+  };
+  renderFields();
+}
+initSheets();
 
 // 解析列表输入：Python list（单引号）/ JSON 数组（双引号）/ 分号分隔文本
 function parseList(raw){
@@ -175,8 +197,8 @@ function collectPayload(){
     frequency:$('frequency').value,
     days:[...document.querySelectorAll('.day-check:checked')].map(c=>parseInt(c.value)),
     times:collectTimes(),
-    sheet_name:$('sheet_name').value.trim(),
-    fields:fieldConfig
+    sheet_id:$('sheet_id')?.value||'',
+    result_path:$('result_path')?.value.trim()||'result'
   };
 }
 
@@ -189,35 +211,19 @@ $('fetchDataBtn').onclick=async()=>{
     if(!r.ok){ out.innerHTML=`<div class="alert alert-error">${esc(r.error)}</div>`; return; }
     if(!r.success){ out.innerHTML=`<div class="alert alert-warning">HTTP ${r.status}：${esc(r.biz_error||'业务错误')}</div>`; }
     fetchFields=r.fields||[];
-    // 字段开关视图：浅绿色标签，可拖动排序，绿色圆圈控制保存
-    fieldConfig=r.fields.map((n,i)=>({name:n, enabled:true, order:i}));
     renderFields(r.data);
   } finally { btn.disabled=false; btn.textContent='Fetch Data'; }
 };
 function renderFields(data){
-  const box=$('fetchResult');
-  box.innerHTML=(fieldConfig||[]).map((f,i)=>{
+  const box=$('sheetFields')||$('fetchResult');
+  if(!box) return;
+  const rows=(fieldConfig||[]).slice().sort((a,b)=>(a.order||0)-(b.order||0));
+  box.innerHTML=rows.length?rows.map(f=>{
     const val=data?.[f.name];
-    return `<div class="field-pill" draggable="true" data-order="${i}">
-      <button type="button" class="dot ${f.enabled?'on':'off'}" data-i="${i}" title="toggle save"></button>
-      <div class="field-pill-text"><b>${esc(f.name)}</b><span>${esc(String(val??'').slice(0,40))}</span></div>
+    return `<div class="field-pill" data-field="${esc(f.name)}">
+      <div class="field-pill-text"><b>${esc(f.name)}</b><span>${esc(f.enabled?'enabled':'disabled')}${val===undefined?'':' · '+String(val).slice(0,40)}</span></div>
     </div>`;
-  }).join('');
-  box.querySelectorAll('.dot').forEach(d=>d.onclick=()=>{
-    const i=parseInt(d.dataset.i); fieldConfig[i].enabled=!fieldConfig[i].enabled;
-    d.classList.toggle('on',fieldConfig[i].enabled); d.classList.toggle('off',!fieldConfig[i].enabled);
-  });
-  // 简单拖拽排序
-  let drag=null;
-  box.querySelectorAll('.field-pill').forEach(p=>{
-    p.ondragstart=()=>drag=p;
-    p.ondragover=e=>e.preventDefault();
-    p.ondrop=e=>{ e.preventDefault(); if(drag&&drag!==p){
-      const a=fieldConfig[parseInt(drag.dataset.order)], b=fieldConfig[parseInt(p.dataset.order)];
-      const t=a.order; a.order=b.order; b.order=t;
-      fieldConfig.sort((x,y)=>x.order-y.order); renderFields(data);
-    }};
-  });
+  }).join(''):'<div class="hint">Choose a Data Sheet with fields.</div>';
 }
 
 // ---------- Save：预检弹窗 ----------

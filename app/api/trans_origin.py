@@ -11,7 +11,8 @@ import time
 import httpx
 
 from config import CARTESIAN_LIMIT
-from ..db import all_rows, execute, new_id, one, utcnow
+from ..db import all_rows, canonical_params, execute, get_db, new_id, one, utcnow
+from ..json_path import resolve_root
 from ..utils import PLACEHOLDER_RE, merge_url_params
 
 
@@ -242,6 +243,28 @@ def extract_fields(body_text, fields_config=None):
     return names, payload
 
 
+def load_sheet_fields(sheet_id):
+    """Load the authoritative field schema owned by Data Sheets."""
+    rows = all_rows(
+        "SELECT key AS name, enabled, ordinal AS `order` FROM sheet_fields "
+        "WHERE sheet_id = ? ORDER BY ordinal, key",
+        (sheet_id,),
+    )
+    return [dict(row) for row in rows]
+
+
+def extract_payload(body_text, result_path, fields_cfg=None):
+    """Resolve the configured result node before extracting fields."""
+    try:
+        data = json.loads(body_text or "{}")
+    except (ValueError, TypeError):
+        data = {}
+    root = resolve_root(data, result_path)
+    if not isinstance(root, dict):
+        raise ValueError("Resolved result node must be a JSON object")
+    return extract_fields(json.dumps(root, ensure_ascii=False), fields_cfg)
+
+
 def ensure_sheet(user_id, origin_id, sheet_name, field_names, replace_fields=False):
     """获取或创建逻辑数据表记录，返回 sheet_id。"""
     row = one("SELECT id FROM data_sheets WHERE user_id = ? AND name = ? AND origin_id = ?",
@@ -280,29 +303,35 @@ def collect_batch(origin, cfg_override=None):
     if err:
         return {"success": False, "total": 0, "failed": 0, "errors": [err], "items": [], "payloads": [], "field_names": []}
 
-    fields_raw = origin.get("fields_json")
-    if not fields_raw:
-        sheet_name = cfg.get("sheet_name") or origin.get("sheet_name", "")
-        sheet = one("SELECT fields_json FROM data_sheets WHERE user_id = ? AND name = ?",
-                    (origin.get("user_id"), sheet_name))
-        fields_raw = sheet["fields_json"] if sheet else "[]"
-    try:
-        fields_cfg = json.loads(fields_raw or "[]")
-    except (ValueError, TypeError):
-        fields_cfg = []
+    fields_cfg = load_sheet_fields(origin.get("sheet_id") or cfg.get("sheet_id") or "")
+    result_path = cfg.get("result_path") or origin.get("result_path") or ""
     interval = float(cfg.get("request_interval", 0) or 0)
     ok_count, fail_count, errors, items, payloads = 0, 0, [], [], []
     field_names = []
 
     for idx, combo in enumerate(combos):
         status, headers, cookies, body, duration, net_err = do_request(cfg, combo)
-        success, biz_err = judge_success(status, body)
+        biz_err = ""
+        if net_err:
+            success = False
+        else:
+            try:
+                resolved = resolve_root(json.loads(body or "{}"), result_path)
+                success, biz_err = judge_success(status, json.dumps(resolved, ensure_ascii=False))
+            except (ValueError, TypeError) as exc:
+                success, biz_err = False, str(exc)
         err_msg = net_err or biz_err
         items.append({"combo": combo, "status": status, "success": success,
                       "error": err_msg, "duration": duration})
         if success:
             ok_count += 1
-            names, payload = extract_fields(body, fields_cfg)
+            try:
+                names, payload = extract_payload(body, result_path, fields_cfg)
+            except (ValueError, TypeError) as exc:
+                success = False
+                fail_count += 1
+                errors.append({"params": combo, "error": str(exc), "status": status})
+                continue
             if not field_names:
                 field_names = names
             payloads.append({"combo": combo, "data": payload})
@@ -317,31 +346,37 @@ def collect_batch(origin, cfg_override=None):
 
 
 def commit_batch(origin, cfg, collected, triggered_by="PRECHECK"):
-    """把 collect_batch 的结果落库：批次 + 明细 + 数据表 + 数据行。返回 {batch_id, sheet_id}。"""
+    """Commit one collection batch atomically into the chosen Data Sheet."""
     batch_id = new_id()
-    items = collected["items"]
-    execute(
-        "INSERT INTO fetch_batches (id, origin_id, user_id, triggered_by, started_at, total, success, failed, finished_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (batch_id, origin["id"], origin["user_id"], triggered_by, utcnow(), collected["total"],
-         collected["total"] - collected["failed"], collected["failed"], utcnow()),
-    )
-    for it in items:
-        execute(
-            "INSERT INTO fetch_logs (batch_id, origin_id, params_used, status, success, error, duration_ms, fetched_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (batch_id, origin["id"], json.dumps(it["combo"], ensure_ascii=False), it["status"],
-             1 if it["success"] else 0, it["error"], it["duration"], utcnow()),
+    sheet_id = origin["sheet_id"]
+    db = get_db()
+    try:
+        db.execute(
+            "INSERT INTO fetch_batches (id, origin_id, user_id, triggered_by, started_at, total, success, failed, finished_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (batch_id, origin["id"], origin["user_id"], triggered_by, utcnow(), collected["total"],
+             collected["total"] - collected["failed"], collected["failed"], utcnow()),
         )
-    sheet_id = ""
-    if collected["payloads"]:
-        sheet_id = ensure_sheet(origin["user_id"], origin["id"], cfg.get("sheet_name", ""), collected["field_names"])
-        for pl in collected["payloads"]:
-            execute(
-                "INSERT INTO data_rows (sheet_id, batch_id, data_json, params_used, fetched_at) VALUES (?, ?, ?, ?, ?)",
-                (sheet_id, batch_id, json.dumps(pl["data"], ensure_ascii=False),
-                 json.dumps(pl["combo"], ensure_ascii=False), utcnow()),
+        for item in collected["items"]:
+            params_json, params_key = canonical_params(item["combo"])
+            db.execute(
+                "INSERT INTO fetch_logs (batch_id, origin_id, params_used, status, success, error, duration_ms, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (batch_id, origin["id"], params_json, item["status"],
+                 1 if item["success"] else 0, item["error"], item["duration"], utcnow()),
             )
+        for payload in collected["payloads"]:
+            params_json, params_key = canonical_params(payload["combo"])
+            db.execute(
+                "INSERT INTO data_rows (sheet_id, batch_id, data_json, params_json, params_key, params_used, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sheet_id, batch_id, json.dumps(payload["data"], ensure_ascii=False),
+                 params_json, params_key, params_json, utcnow()),
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return {"batch_id": batch_id, "sheet_id": sheet_id}
 
 
@@ -364,10 +399,17 @@ def fetch_preview(cfg):
     for p in pairs:
         values[p["key"]] = p["items"][0] if p["is_list"] else p["value"]
     status, headers, cookies, body, duration, net_err = do_request(cfg, values)
-    success, biz_err = judge_success(status, body)
+    try:
+        resolved = resolve_root(json.loads(body or "{}"), cfg.get("result_path", ""))
+        success, biz_err = judge_success(status, json.dumps(resolved, ensure_ascii=False))
+    except (ValueError, TypeError) as exc:
+        success, biz_err = False, str(exc)
     if net_err:
         return {"ok": False, "error": net_err, "status": status}
-    names, data = extract_fields(body)
+    try:
+        names, data = extract_payload(body, cfg.get("result_path", ""), cfg.get("fields"))
+    except (ValueError, TypeError) as exc:
+        return {"ok": False, "error": str(exc), "status": status}
     return {
         "ok": True, "success": success, "biz_error": biz_err,
         "status": status, "fields": names, "data": data,

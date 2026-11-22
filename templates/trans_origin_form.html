@@ -72,7 +72,11 @@
 
 <div class="panel-card">
 <h2>{{ t('trans.section.data') }}</h2>
-<label class="full">{{ t('trans.sheet_name') }}<input id="sheet_name" value="{{ cfg.sheet_name|default('') }}" placeholder="Oil Prices"></label>
+<div class="form-row">
+  <label>{{ t('trans.sheet_select') }}<select id="sheet_id"></select></label>
+  <label>{{ t('trans.result_path') }}<input id="result_path" value="{{ cfg.result_path|default('result') }}" placeholder="result"></label>
+</div>
+<div id="sheetFields" class="fetch-result"></div>
 <div id="fetchArea" class="fetch-area">
   <button type="button" class="btn btn-primary" id="fetchDataBtn">{{ t('trans.fetch_data') }}</button>
   <div id="fetchResult" class="fetch-result"></div>
