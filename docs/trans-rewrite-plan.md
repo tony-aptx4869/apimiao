@@ -136,7 +136,7 @@ Build.
 - Canonicalize `params_key` with `json.dumps(..., sort_keys=True, ensure_ascii=False)` before hashing.
 - Migrate existing sheets, fields, origins, rows, and API configs.
 - Emit a migration report for unresolved field names.
-- Remove legacy columns after the migration succeeds inside this PR.
+- Keep legacy columns until their callers move in `PR2` and `PR5`. New code does not read them.
 
 Data mapping.
 
@@ -146,7 +146,7 @@ Data mapping.
 - `data_rows.params_used` becomes canonical `params_key`.
 - `trans_apis` JSON field names map to field ids. Unmatched names stay in the report and are not silently kept.
 
-Expected result. A fresh app and a migrated app both expose the target schema. No code reads legacy sheet-name columns.
+Expected result. A fresh app and a migrated app both expose the target schema. New code never reads legacy sheet-name columns. Legacy readers are removed in `PR2` and `PR5`.
 
 Verification.
 
@@ -332,6 +332,7 @@ Build.
 - One cron job per configured time remains.
 - Job ids include origin id and a hash of the schedule.
 - Job sync reads target state, not the old boolean pair.
+- Drop legacy `sheet_name`, `verified`, `enabled`, and `data_sheets.origin_id` after all readers are gone.
 - A batch key prevents duplicate concurrent runs for the same origin and time.
 - Batch commit is one transaction.
 - Add retention policy for `data_rows` and `fetch_logs`, configurable in `config.ini`.
