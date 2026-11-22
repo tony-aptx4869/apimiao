@@ -23,6 +23,7 @@
 
 <div class="panel-card">
 <h2>{{ t('trans.section.data_source') }}</h2>
+<div id="dataFeedback" class="alert alert-info" style="display:none"></div>
 <button type="button" class="btn btn-outline" id="chooseSheetsBtn">{{ t('trans.choose_sheets') }}</button>
 <div id="sheetViews" class="sheet-views"></div>
 <div class="mapping-grid">
@@ -52,7 +53,7 @@
 </div>
 
 <div id="sheetsModal" class="modal">
-  <div class="modal-box">
+  <div class="modal-box modal-wide">
     <h3>{{ t('trans.choose_sheets') }}</h3>
     <div id="sheetsList" class="sheets-list"></div>
     <div class="modal-actions">

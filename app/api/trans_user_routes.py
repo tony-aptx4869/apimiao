@@ -6,6 +6,7 @@ from flask import redirect, render_template, request, session, url_for
 from ..db import all_rows, execute, new_id, one, utcnow
 from ..utils import error, ok, require_login, valid_endpoint, PLACEHOLDER_RE
 from . import bp
+from ..data_sheets.service import list_sheets
 
 METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
 
@@ -62,9 +63,12 @@ def _payload_config(data):
     }
 
 
-def _field_id(sheet_id, field_name):
-    row = one("SELECT id FROM sheet_fields WHERE sheet_id = ? AND key = ?",
-              (str(sheet_id or ""), str(field_name or "")))
+def _field_id(sheet_id, field_name, field_id=""):
+    if field_id:
+        return str(field_id)
+    value = str(field_name or "")
+    row = one("SELECT id FROM sheet_fields WHERE sheet_id = ? AND (id = ? OR key = ?)",
+              (str(sheet_id or ""), value, value))
     return row["id"] if row else ""
 
 
@@ -77,8 +81,8 @@ def _query_config(data, user_id):
             continue
         left_sheet = str(item.get("left_sheet") or "")
         right_sheet = str(item.get("right_sheet") or "")
-        left_id = _field_id(left_sheet, item.get("left_field"))
-        right_id = _field_id(right_sheet, item.get("right_field"))
+        left_id = _field_id(left_sheet, item.get("left_field"), item.get("left_field_id"))
+        right_id = _field_id(right_sheet, item.get("right_field"), item.get("right_field_id"))
         if left_id and right_id:
             joins.append({
                 "left_sheet": left_sheet, "left_field_id": left_id,
@@ -102,7 +106,7 @@ def _query_config(data, user_id):
             if not isinstance(item, dict):
                 continue
             sheet_id = str(item.get("sheet_id") or "")
-            field_id = _field_id(sheet_id, item.get("field"))
+            field_id = _field_id(sheet_id, item.get("field"), item.get("field_id"))
             if field_id:
                 filters.append({
                     "sheet_id": sheet_id, "field_id": field_id,
@@ -186,15 +190,16 @@ def trans_user_sheets():
     gate = require_login()
     if gate:
         return gate
-    rows = all_rows(
-        "SELECT s.id, s.name, s.fields_json, o.note AS origin_note "
-        "FROM data_sheets s LEFT JOIN trans_origins o ON s.origin_id = o.id "
-        "WHERE s.user_id = ? ORDER BY s.name", (session["uid"],),
-    )
     out = []
-    for r in rows:
-        out.append({"id": r["id"], "name": r["name"],
-                    "fields": _load(r["fields_json"], "[]")})
+    for sheet in list_sheets(session["uid"]):
+        out.append({
+            "id": sheet["id"],
+            "name": sheet["name"],
+            "fields": [
+                {"id": field["id"], "key": field["key"], "enabled": field["enabled"]}
+                for field in sheet["fields"]
+            ],
+        })
     return ok(sheets=out)
 
 
