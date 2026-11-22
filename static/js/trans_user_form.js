@@ -319,7 +319,7 @@ function renderOutputNode(node){
   const isRoot = node.id===outputTree.id;
   const delBtn = isRoot ? '' : `<button type="button" class="btn btn-xs btn-danger output-node-del" title="${labels.del}">&times;</button>`;
   const keyDisabled = isRoot ? 'disabled' : '';
-  const keyValue = isRoot ? 'Root Node / 根节点' : node.key;
+  const keyValue = isRoot ? (ZH ? '根节点' : 'Root Node') : node.key;
   return `<div class="output-node" data-id="${esc(node.id)}" draggable="true">
     <div class="output-node-row" draggable="true">
       <span class="output-node-type type-${node.type}" draggable="true">${typeLabel}</span>

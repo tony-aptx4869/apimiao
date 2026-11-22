@@ -92,7 +92,7 @@ def source_contracts():
         "root_key_disabled": "const isRoot = node.id===outputTree.id" in js
                              and "const keyDisabled = isRoot ? 'disabled' : ''" in js
                              and "${keyDisabled}" in js
-                             and "const keyValue = isRoot ? 'Root Node / 根节点' : node.key" in js,
+                             and "const keyValue = isRoot ? (ZH ? '根节点' : 'Root Node') : node.key" in js,
         "field_key_from_source_leaf": "sourceKey.split('.').pop()||sourceKey" in js
                                       and "out[output_key or source_key]" in backend,
     }
