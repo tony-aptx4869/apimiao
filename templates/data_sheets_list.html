@@ -9,7 +9,7 @@
 </div>
 <div id="sheetError" class="alert alert-error" style="display:none"></div>
 <div class="table-wrap"><table class="data-table">
-  <thead><tr><th>{{ t('sheet.name') }}</th><th>{{ t('sheet.description') }}</th><th>{{ t('sheet.fields') }}</th><th>{{ t('api.created') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
+  <thead><tr><th>{{ t('sheet.name') }}</th><th>{{ t('sheet.description') }}</th><th>{{ t('sheet.fields') }}</th><th>{{ t('sheet.total_records') }}</th><th>{{ t('sheet.latest_records') }}</th><th>{{ t('api.created') }}</th><th class="row-actions-head">{{ t('common.operations') }}</th></tr></thead>
   <tbody id="sheetRows"></tbody>
 </table></div>
 {% endblock %}
@@ -23,9 +23,10 @@
   if(!r.ok){showError(r.error||'Failed to load data sheets');return;}
   document.getElementById('sheetRows').innerHTML=(r.sheets||[]).map(s=>`<tr>
     <td><code>${esc(s.name)}</code></td><td>${esc(s.description||'')}</td><td>${(s.fields||[]).length}</td>
+    <td>${s.total_records}</td><td>${s.latest_records}</td>
     <td class="date-cell" data-utc="${esc(s.created_at||'')}"></td>
     <td class="row-actions"><a class="btn btn-xs btn-outline" href="/panel/data-sheets/${esc(s.id)}/edit">${esc('{{ t("common.edit") }}')}</a>
-      <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}"${BOUND_SHEETS.has(s.id)?` disabled title="${esc('{{ t("sheet.delete_bound") }}')}"`:''}>${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="5" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
+      <button class="btn btn-xs btn-danger sheet-del" data-id="${esc(s.id)}"${BOUND_SHEETS.has(s.id)?` disabled title="${esc('{{ t("sheet.delete_bound") }}')}"`:''}>${esc('{{ t("common.delete") }}')}</button></td></tr>`).join('')||`<tr><td colspan="7" class="empty">${esc('{{ t("sheet.empty") }}')}</td></tr>`;
   document.querySelectorAll('.sheet-del').forEach(b=>b.onclick=async()=>{
     if(BOUND_SHEETS.has(b.dataset.id)){showError('{{ t("sheet.delete_bound") }}');return;}
     if(!await uiConfirm('{{ t("sheet.delete_confirm") }}'))return;

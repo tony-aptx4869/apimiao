@@ -75,13 +75,33 @@ def _sync_legacy_fields(sheet_id):
     )
 
 
+def _row_counts(sheet_ids):
+    """Real-time record counts per sheet: total rows and latest (deduped) records."""
+    if not sheet_ids:
+        return {}
+    placeholders = ",".join("?" for _ in sheet_ids)
+    rows = get_db().execute(
+        "SELECT sheet_id, COUNT(*) AS total, COUNT(DISTINCT NULLIF(params_key, '')) AS latest "
+        f"FROM data_rows WHERE sheet_id IN ({placeholders}) GROUP BY sheet_id",
+        tuple(sheet_ids),
+    )
+    return {
+        row["sheet_id"]: {"total_records": row["total"], "latest_records": row["latest"]}
+        for row in rows
+    }
+
+
 def list_sheets(user_id):
     rows = get_db().execute(
         "SELECT id, name, description, created_at, updated_at FROM data_sheets "
         "WHERE user_id = ? ORDER BY name",
         (user_id,),
     )
-    return [_sheet_dict(row) for row in rows]
+    sheets = [_sheet_dict(row) for row in rows]
+    counts = _row_counts([sheet["id"] for sheet in sheets])
+    for sheet in sheets:
+        sheet.update(counts.get(sheet["id"], {"total_records": 0, "latest_records": 0}))
+    return sheets
 
 
 def get_sheet(user_id, sheet_id):
