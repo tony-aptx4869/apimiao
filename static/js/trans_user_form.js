@@ -93,11 +93,21 @@ $('chooseSheetsBtn').onclick=async()=>{
   const r=await apiFetch('/api/trans-user/sheets');
   if(r.ok) availableSheets=r.sheets||[];
   const box=$('sheetsList');
-  box.innerHTML=availableSheets.map(s=>{
+  const head=`<div class="sheets-head">
+      <span class="col-check"></span>
+      <span class="col-name">${ZH?'数据表名称':'Data Sheet'}</span>
+      <span class="col-count">${ZH?'字段数':'Field Count'}</span>
+    </div>`;
+  const rows=availableSheets.map(s=>{
     const checked=selectedSheets.includes(s.id)?'checked':'';
     const count=(s.fields||[]).length;
-    return `<label class="sheet-opt"><input type="checkbox" class="sheet-check" value="${esc(s.id)}" ${checked}> <b>${esc(s.name)}</b> <span class="muted">(${count} ${ZH?'个字段':'fields'})</span></label>`;
-  }).join('')||`<p class="empty">${ZH?'暂无数据表，请先创建数据表。':'No Data Sheets yet. Create one first.'}</p>`;
+    return `<div class="sheet-opt">
+      <label class="col-check"><input type="checkbox" class="sheet-check" value="${esc(s.id)}" ${checked}></label>
+      <span class="col-name"><b>${esc(s.name)}</b></span>
+      <span class="col-count muted">(${count} ${ZH?'个字段':'fields'})</span>
+    </div>`;
+  }).join('');
+  box.innerHTML=head+`<div class="sheets-body">${rows||`<p class="empty">${ZH?'暂无数据表，请先创建数据表。':'No Data Sheets yet. Create one first.'}</p>`}</div>`;
   $('sheetsModal').classList.add('show');
 };
 $('sheetsCancel').onclick=()=>$('sheetsModal').classList.remove('show');

@@ -279,8 +279,13 @@ label.full input { width: 100%; }
 .mapping-item { display: flex; gap: 6px; align-items: center; background: #eff6ff; border-radius: 6px; padding: 5px 8px; margin-bottom: 6px; font-size: 12px; }
 .mapping-item .src-field { flex: 0 0 auto; color: #1d4ed8; }
 .mapping-item .alias-input { flex: 1; min-width: 80px; font-size: 12px; padding: 3px 6px; }
-.sheets-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; }
-.sheet-opt { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.sheets-list { display: flex; flex-direction: column; }
+.sheets-head { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px 6px 0 0; font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface); }
+.sheets-body { border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; max-height: 50vh; overflow-y: auto; }
+.sheet-opt { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: center; padding: 8px 12px; font-size: 12px; border-bottom: 1px solid var(--border); }
+.sheet-opt:last-child { border-bottom: none; }
+.sheet-opt:hover { background: #eff6ff; }
+.sheet-opt .col-check { display: flex; align-items: center; }
 .progress { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
 .precheck-log { max-height: 220px; overflow: auto; font-size: 12px; }
 .log-err { background: #fef2f2; color: #b91c1c; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; }
