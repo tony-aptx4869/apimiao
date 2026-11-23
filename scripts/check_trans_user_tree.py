@@ -14,7 +14,7 @@ TMP_DIR = Path(tempfile.mkdtemp(prefix="apimiao-trans-user-tree-"))
 dbmod.DB_PATH = TMP_DIR / "apimiao.db"
 
 from app import create_app
-from app.api.trans_user import execute_query
+from app.api.trans_user import MISSING_FILTER, execute_query
 from app.api.query_spec import build_query_spec
 from app.data_sheets.service import create_sheet, get_sheet
 from app.db import all_rows, execute, utcnow
@@ -126,6 +126,15 @@ def run():
             flat_row = dict(next(r for r in all_rows("SELECT * FROM trans_apis") if r["id"] == flat_id))
 
             rows, err = execute_query(api_row, {"prov": "北京"})
+            missing_rows, missing_err = execute_query(api_row, {})
+            record("missing_filter_returns_error",
+                   missing_rows == [] and missing_err == MISSING_FILTER,
+                   f"rows={missing_rows} err={missing_err!r}")
+            proxy_source = (ROOT / "app/api/proxy.py").read_text(encoding="utf-8")
+            record("missing_filter_http_400",
+                   "err == MISSING_FILTER" in proxy_source
+                   and '"Missing filter parameter" if status == 400' in proxy_source
+                   and "return error(message, status)" in proxy_source)
             spec = build_query_spec(flat_row)
             flat_filtered, flat_filter_err = execute_query(flat_row, {"prov": "北京"})
             record("flat_key_filter_hits",

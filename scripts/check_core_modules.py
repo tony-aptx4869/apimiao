@@ -85,7 +85,12 @@ def user_payload(sheet, endpoint):
         "note": "note",
         "sheet_ids": [sheet["id"]],
         "sheet_fields": {sheet["id"]: field_map},
-        "param_mapping": [],
+        "param_mapping": [{
+            "sheet_id": sheet["id"],
+            "field_id": sheet["fields"][0]["id"],
+            "field": sheet["fields"][0]["key"],
+            "alias": "q",
+        }],
         "body_mapping": [],
         "joins": [],
         "timeout": 10, "retry": 0, "rate_limit": 0,
@@ -138,7 +143,7 @@ def run():
         user_api = client.post("/api/trans-apis", json=user_payload(sheet, "core-trans-user"))
         record("trans_user_create", user_api.status_code == 200, f"status={user_api.status_code}")
         user_id = user_api.get_json().get("id", "")
-        user_rows, user_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {})
+        user_rows, user_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {"q": "x"})
         query_ok = user_err is None
         for field in sheet["fields"]:
             sheet_edit2 = client.put("/api/data-sheets/" + sheet["id"], json={
@@ -147,13 +152,13 @@ def run():
                 "fields": [{**f, "label": f["label"] + "?"} for f in sheet_after["fields"]],
             })
             sheet_after2 = client.get("/api/data-sheets/" + sheet["id"]).get_json()["sheet"]
-            _, query_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {})
+            _, query_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {"q": "x"})
             query_ok = query_ok and query_err is None
             break
         record("trans_user_query_survives_sheet_edit", query_ok, f"query_err={query_err!r} edit_status={sheet_edit2.status_code}")
 
         delete_sheet = client.delete("/api/data-sheets/" + sheet["id"])
-        after_delete_query, after_delete_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {}) if one("SELECT 1 FROM trans_apis WHERE id=?", (user_id,)) else ([], None)
+        after_delete_query, after_delete_err = execute_query(dict(one("SELECT * FROM trans_apis WHERE id=?", (user_id,))), {"q": "x"}) if one("SELECT 1 FROM trans_apis WHERE id=?", (user_id,)) else ([], None)
         record("sheet_delete_referenced_blocked", delete_sheet.status_code >= 400,
                f"delete_status={delete_sheet.status_code} query_err={after_delete_err!r}")
 

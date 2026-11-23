@@ -5,6 +5,8 @@ from ..db import all_rows
 from .query_spec import build_query_spec
 from .snapshot import latest_rows
 
+MISSING_FILTER = "MISSING_FILTER_PARAMETER"
+
 
 def _project(sheet_id, data, projections):
     """Apply per-API projections. No projection means expose all fields."""
@@ -74,6 +76,9 @@ def execute_query(api, request_params):
         spec = build_query_spec(api)
     except ValueError as exc:
         return [], str(exc)
+
+    if not any(rule.alias in request_params for rule in spec.filters):
+        return [], MISSING_FILTER
 
     tree = _load_output_tree(api)
     field_keys = {}

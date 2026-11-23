@@ -338,7 +338,7 @@ def _trans_gateway(endpoint):
     import time
     from flask import jsonify
     from ..db import log_request
-    from .trans_user import execute_query
+    from .trans_user import MISSING_FILTER, execute_query
     started = time.monotonic()
     user, key, auth_err = _authenticate()
     if auth_err:
@@ -383,9 +383,11 @@ def _trans_gateway(endpoint):
         result, err = [], str(exc)
     duration = int((time.monotonic() - started) * 1000)
     if err:
-        log_request(user["id"], api["id"], request.method, endpoint, 500, False, duration,
+        status = 400 if err == MISSING_FILTER else 500
+        message = "Missing filter parameter" if status == 400 else "Query failed"
+        log_request(user["id"], api["id"], request.method, endpoint, status, False, duration,
                     err, client_ip=client_ip)
-        return error("Query failed", 500)
+        return error(message, status)
     log_request(user["id"], api["id"], request.method, endpoint, 200, True, duration,
                 client_ip=client_ip)
     return Response(json.dumps(result, ensure_ascii=False), status=200, mimetype="application/json")
