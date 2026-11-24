@@ -43,7 +43,9 @@ CREATE TABLE IF NOT EXISTS passkeys (
     credential_id BLOB NOT NULL UNIQUE,
     public_key BLOB NOT NULL,
     sign_count INTEGER NOT NULL DEFAULT 0,
-    transports TEXT
+    transports TEXT,
+    aaguid TEXT,
+    user_verified INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -326,6 +328,10 @@ def _migrate(conn):
     conn.execute("UPDATE request_logs SET event_type = 'UPSTREAM_TRANS' WHERE event_type = 'UPSTREAM_TRANSMISSION'")
     # 旧 TRANSMISSION 的清理放在新架构全面上线后单独执行（见 deploy/cleanup_legacy_transmission.py），
     # 避免旧代码在过渡期引用到已删除的表。
+
+    # passkeys：按 WebAuthn L2 §6.5.1 记录 attestedCredentialData 的 aaguid 与注册时的 UV 结果
+    _ensure_column(conn, "passkeys", "aaguid", "TEXT")
+    _ensure_column(conn, "passkeys", "user_verified", "INTEGER NOT NULL DEFAULT 0")
 
 
 def canonical_params(value):

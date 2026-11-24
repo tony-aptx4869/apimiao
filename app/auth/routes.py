@@ -18,34 +18,20 @@ from webauthn import (
     verify_authentication_response,
     verify_registration_response,
 )
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
+from webauthn.helpers import (
+    base64url_to_bytes,
+    bytes_to_base64url,
+    options_to_json,
+    parse_authentication_credential_json,
+    parse_registration_credential_json,
+)
 from webauthn.helpers.structs import (
-    AuthenticationCredential,
+    AttestationConveyancePreference,
     AuthenticatorSelectionCriteria,
     PublicKeyCredentialDescriptor,
-    RegistrationCredential,
+    ResidentKeyRequirement,
     UserVerificationRequirement,
 )
-
-# webauthn 2.x 用 parse_*_credential_json；1.x 用 Credential.parse_raw。
-# 两者都兼容，避免 requirements 版本差异导致 "type object has no attribute 'parse_raw'" / "Invalid response"。
-try:
-    from webauthn.helpers import parse_registration_credential_json, parse_authentication_credential_json
-    _HAS_JSON_HELPERS = True
-except ImportError:
-    _HAS_JSON_HELPERS = False
-
-
-def _parse_registration_credential(raw_json):
-    if _HAS_JSON_HELPERS:
-        return parse_registration_credential_json(raw_json)
-    return RegistrationCredential.parse_raw(raw_json)
-
-
-def _parse_authentication_credential(raw_json):
-    if _HAS_JSON_HELPERS:
-        return parse_authentication_credential_json(raw_json)
-    return AuthenticationCredential.parse_raw(raw_json)
 
 
 def _options_response(options):
@@ -174,7 +160,7 @@ def logout():
     return redirect(url_for("auth.home"))
 
 
-# ---------------- WebAuthn：通行密钥登录 ----------------
+# ---------------- WebAuthn：通行密钥登录（§5.5 RequestOptions / §7.2 认证验证） ----------------
 
 @bp.route("/api/passkey/auth/options", methods=["POST"])
 def passkey_auth_options():
@@ -184,9 +170,11 @@ def passkey_auth_options():
     user = one("SELECT id FROM users WHERE email = ?", (email,))
     if not user:
         return error("No passkeys registered", 400)
-    allow = []
-    for row in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ? ORDER BY id", (user["id"],)):
-        allow.append(PublicKeyCredentialDescriptor(id=bytes(row["credential_id"])))
+    # §5.5：allowCredentials 限定认证器只能返回该用户已注册的凭证
+    allow = [
+        PublicKeyCredentialDescriptor(id=bytes(row["credential_id"]))
+        for row in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ? ORDER BY id", (user["id"],))
+    ]
     if not allow:
         return error("No passkeys registered", 400)
     rp_id, _ = _rp_origin()
@@ -206,10 +194,12 @@ def passkey_auth_verify():
         return error("Challenge expired", 400)
     rp_id, origin = _rp_origin()
     try:
-        credential = _parse_authentication_credential(request.get_data(as_text=True))
+        credential = parse_authentication_credential_json(request.get_data(as_text=True))
         row = one("SELECT * FROM passkeys WHERE credential_id = ?", (credential.raw_id,))
         if not row:
             return error("Unknown passkey", 400)
+        # §7.2：库内部完成 clientData 类型/挑战/来源校验、rpIdHash、UP/UV 检查、
+        # sig 对 authData||SHA256(clientDataJSON) 验签、signCount 单调性（克隆检测）
         verified = verify_authentication_response(
             credential=credential,
             expected_challenge=base64url_to_bytes(challenge_b64),
@@ -223,6 +213,7 @@ def passkey_auth_verify():
         return error(f"Passkey verification failed: {exc}", 400)
 
     session.pop("passkey_auth_challenge", None)
+    # §7.2：新 signCount 大于存储值则更新；库已保证不会回退（回退即克隆，直接拒绝）
     execute("UPDATE passkeys SET sign_count = ? WHERE id = ?", (verified.new_sign_count, row["id"]))
     user = one("SELECT * FROM users WHERE id = ?", (row["user_id"],))
     if not user:
@@ -230,7 +221,7 @@ def passkey_auth_verify():
     return _finish_login(user)
 
 
-# ---------------- WebAuthn：注册通行密钥（需登录） ----------------
+# ---------------- WebAuthn：注册通行密钥（§5.4 CreationOptions / §7.1 注册验证） ----------------
 
 @bp.route("/api/passkey/register/options", methods=["POST"])
 def passkey_register_options():
@@ -241,23 +232,26 @@ def passkey_register_options():
     count = one("SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?", (session["uid"],))["n"]
     if count >= PASSKEY_MAX:
         return error(f"Maximum {PASSKEY_MAX} passkeys reached", 400)
-    exclude = [PublicKeyCredentialDescriptor(id=bytes(r["credential_id"])) for r in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ?", (session["uid"],))]
+    # §5.4：excludeCredentials 防止同一认证器重复注册
+    exclude = [
+        PublicKeyCredentialDescriptor(id=bytes(r["credential_id"]))
+        for r in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ?", (session["uid"],))
+    ]
     rp_id, _ = _rp_origin()
-    common = dict(
-        rp_id=rp_id, rp_name="APIMiao", user_id=user["id"].encode(),
-        user_name=user["email"], user_display_name=user["email"], exclude_credentials=exclude,
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name=config.RP_NAME,
+        user_id=user["id"].encode(),
+        user_name=user["email"],
+        user_display_name=user["email"],
+        exclude_credentials=exclude,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            require_resident_key=False,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        ),
+        attestation=AttestationConveyancePreference.NONE,
     )
-    # webauthn 2.x 用 authenticator_selection；1.x 用 user_verification。版本兼容。
-    try:
-        options = generate_registration_options(
-            **common,
-            authenticator_selection=AuthenticatorSelectionCriteria(
-                user_verification=UserVerificationRequirement.PREFERRED),
-        )
-    except TypeError:
-        options = generate_registration_options(
-            **common, user_verification=UserVerificationRequirement.PREFERRED,
-        )
     session["passkey_reg_challenge"] = bytes_to_base64url(options.challenge)
     return _options_response(options)
 
@@ -277,7 +271,9 @@ def passkey_register_verify():
     if not name or not platform:
         return error("Name and platform are required", 400)
     try:
-        credential = _parse_registration_credential(request.get_data(as_text=True))
+        credential = parse_registration_credential_json(request.get_data(as_text=True))
+        # §7.1：库内部完成 clientData 类型=webauthn.create/挑战/来源校验、CBOR 解码
+        # attestationObject、rpIdHash、UP/UV、alg 匹配、attStmt 验证
         verified = verify_registration_response(
             credential=credential,
             expected_challenge=base64url_to_bytes(challenge_b64),
@@ -289,16 +285,19 @@ def passkey_register_verify():
         return error(f"Passkey registration failed: {exc}", 400)
 
     session.pop("passkey_reg_challenge", None)
+    # §7.1：credentialId 不得已被注册（UNIQUE 约束兜底，显式检查给出更清晰错误）
+    if one("SELECT 1 FROM passkeys WHERE credential_id = ?", (verified.credential_id,)):
+        return error("Passkey already exists", 400)
     transports = ",".join(credential.response.transports or [])
-    try:
-        execute(
-            "INSERT INTO passkeys (user_id, name, platform, created_at, credential_id, public_key, sign_count, transports) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (session["uid"], name, platform, utcnow(), verified.credential_id, verified.credential_public_key,
-             verified.credential_sign_count, transports),
-        )
-    except Exception as exc:
-        return error(f"Passkey already exists: {exc}", 400)
+    execute(
+        "INSERT INTO passkeys (user_id, name, platform, created_at, credential_id, public_key, "
+        "sign_count, transports, aaguid, user_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            session["uid"], name, platform, utcnow(), verified.credential_id,
+            verified.credential_public_key, verified.sign_count, transports,
+            verified.aaguid, 1 if verified.user_verified else 0,
+        ),
+    )
     return ok()
 
 
@@ -348,7 +347,7 @@ def passkey_delete(passkey_id):
             return error("Challenge expired", 400)
         rp_id, origin = _rp_origin()
         try:
-            credential = _parse_authentication_credential(request.get_data(as_text=True))
+            credential = parse_authentication_credential_json(request.get_data(as_text=True))
             verify_authentication_response(
                 credential=credential,
                 expected_challenge=base64url_to_bytes(challenge_b64),
