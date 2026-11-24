@@ -82,7 +82,12 @@ def _brute_ok(scope, identity):
     return check_rate_limit(key, 5)
 
 
-def _finish_login(user):
+def _establish_login(user):
+    """建立登录会话，返回应跳转的目标 URL。
+
+    XHR 端点（passkey 认证验证）返回 JSON，由前端自行跳转，因此这里返回
+    URL 字符串而非重定向响应，避免 fetch 跟随 302 拿到 HTML 导致解析失败。
+    """
     session.clear()
     session["uid"] = user["id"]
     session["email"] = user["email"]
@@ -90,8 +95,13 @@ def _finish_login(user):
     session.permanent = True
     if user["must_change_password"]:
         session["force_pwd"] = True
-        return redirect(url_for("control.profile") + "?force=1")
-    return redirect(url_for("control.overview"))
+        return url_for("control.profile") + "?force=1"
+    return url_for("control.overview")
+
+
+def _finish_login(user):
+    """表单登录收尾：直接重定向到控制台（整页导航，不走 XHR）。"""
+    return redirect(_establish_login(user))
 
 
 @bp.route("/")
@@ -218,10 +228,37 @@ def passkey_auth_verify():
     user = one("SELECT * FROM users WHERE id = ?", (row["user_id"],))
     if not user:
         return error("User not found", 400)
-    return _finish_login(user)
+    # XHR 契约：返回 JSON 而非 302，前端拿到 redirect 后自行跳转
+    return ok(redirect=_establish_login(user))
 
 
 # ---------------- WebAuthn：注册通行密钥（§5.4 CreationOptions / §7.1 注册验证） ----------------
+
+# AAGUID（§6.5.1 attestedCredentialData）→ 平台名。依据 FIDO MDS / 社区通行密钥
+# AAGUID 注册表核实，仅覆盖常见认证器；未命中（含全零隐私值）归为 Other。
+_AAGUID_PLATFORMS = {
+    # Apple iCloud Keychain
+    "fbfc3007-154e-4ecc-8c0b-6e020557d7bd": "Apple",
+    "dd4ec289-e01d-41c9-bb89-70fa845d4bf2": "Apple",
+    # Microsoft Windows Hello
+    "08987058-cadc-4b81-b6e1-30de50dcbe96": "Microsoft",
+    "9ddd1817-af5a-4672-a2b9-3e3dd95000a9": "Microsoft",
+    "6028b017-b1d4-4c02-b4b3-afcdafc96bb2": "Microsoft",
+    # Google Password Manager
+    "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4": "Google",
+    # Yubico
+    "2fc0579f-8113-47ea-b116-bb5a8db9202a": "YubiKey",
+    "fa2b99dc-9e39-4257-8f92-4a30d23c4118": "YubiKey",
+    "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73": "YubiKey",
+    "149a2021-8ef6-4133-96b8-81f8d5b7f1f5": "YubiKey",
+    "b92c3f9a-c014-4056-887f-140a2501163b": "YubiKey",
+}
+
+
+def _platform_from_aaguid(aaguid):
+    """由注册返回的 AAGUID 推导平台，未命中返回 Other。"""
+    return _AAGUID_PLATFORMS.get(str(aaguid or "").strip().lower(), "Other")
+
 
 @bp.route("/api/passkey/register/options", methods=["POST"])
 def passkey_register_options():
@@ -265,11 +302,6 @@ def passkey_register_verify():
     if not challenge_b64:
         return error("Challenge expired", 400)
     rp_id, origin = _rp_origin()
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    platform = (data.get("platform") or "").strip()
-    if not name or not platform:
-        return error("Name and platform are required", 400)
     try:
         credential = parse_registration_credential_json(request.get_data(as_text=True))
         # §7.1：库内部完成 clientData 类型=webauthn.create/挑战/来源校验、CBOR 解码
@@ -288,17 +320,25 @@ def passkey_register_verify():
     # §7.1：credentialId 不得已被注册（UNIQUE 约束兜底，显式检查给出更清晰错误）
     if one("SELECT 1 FROM passkeys WHERE credential_id = ?", (verified.credential_id,)):
         return error("Passkey already exists", 400)
+    # 平台不再由客户端选择，依据注册返回的 AAGUID（§6.5.1）自动推导
+    platform = _platform_from_aaguid(verified.aaguid)
+    # 建议名称：平台名-序号，序号为该用户该平台已有数量 + 1
+    seq = one(
+        "SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ? AND platform = ?",
+        (session["uid"], platform),
+    )["n"]
+    suggested_name = f"{platform}-{seq + 1}"
     transports = ",".join(credential.response.transports or [])
-    execute(
+    cur = execute(
         "INSERT INTO passkeys (user_id, name, platform, created_at, credential_id, public_key, "
         "sign_count, transports, aaguid, user_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            session["uid"], name, platform, utcnow(), verified.credential_id,
+            session["uid"], suggested_name, platform, utcnow(), verified.credential_id,
             verified.credential_public_key, verified.sign_count, transports,
             verified.aaguid, 1 if verified.user_verified else 0,
         ),
     )
-    return ok()
+    return ok(id=cur.lastrowid, platform=platform, suggested_name=suggested_name)
 
 
 @bp.route("/api/passkeys", methods=["GET"])
@@ -308,6 +348,22 @@ def passkey_list():
         return gate
     rows = all_rows("SELECT id, name, platform, created_at FROM passkeys WHERE user_id = ? ORDER BY created_at DESC", (session["uid"],))
     return ok(passkeys=[dict(r) for r in rows])
+
+
+@bp.route("/api/passkey/<int:passkey_id>", methods=["PUT"])
+def passkey_rename(passkey_id):
+    gate = require_login()
+    if gate:
+        return gate
+    row = one("SELECT id FROM passkeys WHERE id = ? AND user_id = ?", (passkey_id, session["uid"]))
+    if not row:
+        return error("Passkey not found", 404)
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return error("Name is required", 400)
+    execute("UPDATE passkeys SET name = ? WHERE id = ?", (name, passkey_id))
+    return ok()
 
 
 # 删除通行密钥：可用 2FA 动态码，或任意通行密钥验证

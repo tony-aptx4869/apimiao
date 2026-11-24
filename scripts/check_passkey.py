@@ -172,12 +172,17 @@ def run():
         challenge = body["challenge"]
 
         # ---- Registration verify (§7.1) ----
+        # 新契约：不再由客户端传 name/platform，服务端依据 AAGUID 推导平台
+        # 并给出建议名 平台名-序号，返回 id/platform/suggested_name。
         cred = auth.register(challenge)
-        cred["name"] = "Test Key"
-        cred["platform"] = "YubiKey"
         reg = client.post("/api/passkey/register/verify", json=cred)
-        record("register_verify_ok", reg.status_code == 200 and reg.get_json().get("ok"),
-               f"status={reg.status_code} body={reg.get_json()}")
+        reg_body = reg.get_json()
+        record("register_verify_ok", reg.status_code == 200 and reg_body.get("ok"),
+               f"status={reg.status_code} body={reg_body}")
+        record("register_verify_platform_auto",
+               bool(reg_body.get("id")) and reg_body.get("platform") == "Other"
+               and reg_body.get("suggested_name") == "Other-1",
+               f"body={reg_body}")
 
         row = one("SELECT * FROM passkeys WHERE user_id = ?", (uid,))
         record("register_stored_fields",
@@ -186,19 +191,31 @@ def run():
                and row["sign_count"] == auth.sign_count
                and row["transports"] == "internal"
                and bool(row["aaguid"])
-               and row["user_verified"] == 1,
+               and row["user_verified"] == 1
+               and row["name"] == "Other-1" and row["platform"] == "Other",
                f"row={dict(row) if row else None}")
 
         # ---- List ----
         pks = client.get("/api/passkeys").get_json().get("passkeys", [])
-        record("passkey_list", len(pks) == 1 and pks[0]["name"] == "Test Key",
+        record("passkey_list", len(pks) == 1 and pks[0]["name"] == "Other-1"
+               and pks[0]["platform"] == "Other",
                f"passkeys={pks}")
+
+        # ---- Rename (PUT) ----
+        rn = client.put(f"/api/passkey/{row['id']}", json={"name": "My Key"})
+        record("passkey_rename", rn.status_code == 200 and rn.get_json().get("ok")
+               and one("SELECT name FROM passkeys WHERE id = ?", (row["id"],))["name"] == "My Key",
+               f"status={rn.status_code} body={rn.get_json()}")
+        rn_empty = client.put(f"/api/passkey/{row['id']}", json={"name": "  "})
+        record("passkey_rename_empty_rejected", rn_empty.status_code == 400,
+               f"status={rn_empty.status_code}")
+        rn_foreign = client.put("/api/passkey/999999", json={"name": "X"})
+        record("passkey_rename_not_found", rn_foreign.status_code == 404,
+               f"status={rn_foreign.status_code}")
 
         # ---- Duplicate registration blocked (§7.1 credentialId uniqueness) ----
         opts2 = client.post("/api/passkey/register/options", json={}).get_json()
         cred2 = auth.register(opts2["challenge"])
-        cred2["name"] = "Dup"
-        cred2["platform"] = "Other"
         dup = client.post("/api/passkey/register/verify", json=cred2)
         record("register_duplicate_blocked", dup.status_code == 400,
                f"status={dup.status_code} body={dup.get_json()}")
@@ -213,10 +230,19 @@ def run():
                f"allow={allow}")
 
         # ---- Auth verify (§7.2) ----
+        # XHR 契约：返回 JSON {ok, redirect}，前端按 redirect 跳转，不再返回 302
         assertion = auth.authenticate(abody["challenge"])
         av = client.post("/api/passkey/auth/verify", json=assertion)
-        record("auth_verify_login", av.status_code == 302,
-               f"status={av.status_code}")
+        av_body = av.get_json()
+        record("auth_verify_login",
+               av.status_code == 200 and av_body.get("ok")
+               and av_body.get("redirect") == "/panel/overview",
+               f"status={av.status_code} body={av_body}")
+        # 会话已建立：带该会话访问控制台应放行
+        with client.session_transaction() as s:
+            logged_in = s.get("uid") == uid
+        record("auth_verify_session_established", logged_in,
+               f"uid={s.get('uid')}")
         row2 = one("SELECT sign_count FROM passkeys WHERE user_id = ?", (uid,))
         record("auth_updates_sign_count", row2["sign_count"] == auth.sign_count + 1,
                f"sign_count={row2['sign_count']}")

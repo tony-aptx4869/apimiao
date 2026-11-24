@@ -52,19 +52,21 @@ function credToJson(cred) {
 }
 
 // 注册通行密钥：取 §5.4 CreationOptions → navigator.credentials.create → 提交验证。
-async function registerPasskey(name, platform, modal) {
+// 平台由注册返回的 AAGUID（§6.5.1）自动推导，调用方无需再传名称与平台。
+// 成功返回 {id, platform, suggested_name}（suggested_name 形如「平台名-序号」）；
+// 失败或用户取消返回 null。
+async function registerPasskey() {
   try {
     const opt = await apiPost('/api/passkey/register/options', {});
     if (!opt.challenge) throw new Error(opt.error || 'No options');
     const cred = await navigator.credentials.create({ publicKey: optionToPublicKey(opt) });
-    if (!cred) return;
+    if (!cred) return null;
     const body = JSON.parse(credToJson(cred));
-    body.name = name;
-    body.platform = platform;
     const r = await apiFetch('/api/passkey/register/verify', 'POST', body);
-    if (r.ok) { modal?.classList.remove('show'); location.reload(); }
-    else await uiAlert(r.error);
-  } catch (e) { await uiAlert('Passkey registration failed: ' + e.message); }
+    if (r.ok) return r;
+    await uiAlert(r.error);
+    return null;
+  } catch (e) { await uiAlert((window.LANG_ZH ? '通行密钥注册失败：' : 'Passkey registration failed: ') + e.message); return null; }
 }
 
 // 认证通行密钥：取 §5.5 RequestOptions → navigator.credentials.get → 返回待验证凭证。
@@ -77,15 +79,15 @@ async function authenticatePasskey(optionsUrl, email) {
     const cred = await navigator.credentials.get({ publicKey: optionToPublicKey(opt) });
     if (!cred) return null;
     return JSON.parse(credToJson(cred));
-  } catch (e) { await uiAlert('Passkey authentication failed: ' + e.message); return null; }
+  } catch (e) { await uiAlert((window.LANG_ZH ? '通行密钥认证失败：' : 'Passkey authentication failed: ') + e.message); return null; }
 }
 
-// 登录页：输入邮箱后用通行密钥完成认证。
+// 登录页：输入邮箱后用通行密钥完成认证，成功后按服务端返回的地址跳转控制台。
 document.getElementById('passkeyLoginBtn')?.addEventListener('click', async () => {
   const email = document.querySelector('input[name="email"]')?.value || '';
   const body = await authenticatePasskey('/api/passkey/auth/options', email);
   if (!body) return;
   const r = await apiPost('/api/passkey/auth/verify', body);
-  if (r.ok) location.reload();
-  else await uiAlert(r.error);
+  if (r.ok && r.redirect) location.href = r.redirect;
+  else await uiAlert(r.error || 'Invalid response');
 });
