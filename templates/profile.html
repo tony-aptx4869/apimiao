@@ -51,8 +51,7 @@
   </div>
 </div>
 <div class="form-section">
-  <h2>{{ t('profile.passkeys') }} <span class="hint">{{ passkeys|length }} / 9</span></h2>
-  <button class="btn btn-outline" id="addPasskey"><i class="bi bi-plus"></i> {{ t('profile.add_passkey') }}</button>
+  <h2>{{ t('profile.passkeys') }} <span class="hint" id="passkeyCount">{{ passkeys|length }} / {{ passkey_max }}</span> <button class="btn btn-outline" id="addPasskey"><i class="bi bi-plus"></i> {{ t('profile.add_passkey') }}</button></h2>
   <div class="table-wrap">
     <table class="data-table">
       <thead><tr><th>{{ t('profile.name') }}</th><th>{{ t('profile.platform') }}</th><th>{{ t('keys.created') }}</th><th></th></tr></thead>
@@ -108,6 +107,8 @@ async function loadPasskeys() {
   const r = await apiGet('/api/passkeys');
   if (!r.ok) return;
   passkeys = r.passkeys;
+  // 计数随列表一起刷新：添加/删除/改名后调用本函数即实时更新
+  document.getElementById('passkeyCount').textContent = passkeys.length + ' / ' + {{ passkey_max | tojson }};
   document.getElementById('passkeyRows').innerHTML = passkeys.map(p =>
     '<tr data-id="' + p.id + '"><td>' + esc(p.name) + '</td><td>' + esc(p.platform) + '</td>' +
     '<td class="date-cell" data-utc="' + p.created_at + '"></td><td><button class="btn btn-xs btn-outline ren-pk">' + {{ t('common.rename') | tojson }} + '</button> <button class="btn btn-xs btn-danger del-pk">' + {{ t('common.delete') | tojson }} + '</button></td></tr>'
@@ -130,7 +131,8 @@ document.getElementById('addPasskey').onclick = async () => {
   pkModal.dataset.id = r.id;
   pkModal.classList.add('show');
 };
-document.getElementById('pkCancel').onclick = () => pkModal.classList.remove('show');
+// 注册在服务端已完成，取消命名也要刷新列表与计数以反映真实状态
+document.getElementById('pkCancel').onclick = () => { pkModal.classList.remove('show'); loadPasskeys(); };
 document.getElementById('pkSave').onclick = async () => {
   const input = document.getElementById('pkName');
   // 留空时自动使用 placeholder（平台名-序号）作为名称

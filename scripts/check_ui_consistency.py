@@ -95,6 +95,12 @@ def source_contracts():
                              and "const keyValue = isRoot ? (ZH ? '根节点' : 'Root Node') : node.key" in js,
         "field_key_from_source_leaf": "sourceKey.split('.').pop()||sourceKey" in js
                                       and "out[output_key or source_key]" in backend,
+        "passkey_count_live": (lambda p: ordered(p, 'id="passkeyCount"', 'id="addPasskey"')
+                               and "passkeyCount').textContent = passkeys.length + ' / '" in p
+                               and p.count("loadPasskeys();") >= 3
+                               and "{{ passkey_max }}" in p
+                               and "/ 9</span>" not in p)(
+            (ROOT / "templates/profile.html").read_text(encoding="utf-8")),
     }
 
 
@@ -150,6 +156,11 @@ def run():
         proxy_list = client.get("/panel/api-manager").get_data(as_text=True)
         record("proxy_list_has_edit_action", "copy-api" in proxy_list and "del-api" in proxy_list
                and "btn-xs btn-outline" in proxy_list, f"length={len(proxy_list)}")
+
+        profile_page = client.get("/panel/profile").get_data(as_text=True)
+        record("passkey_count_and_button", 'id="passkeyCount">0 / 9</span>' in profile_page
+               and ordered(profile_page, 'id="passkeyCount"', 'id="addPasskey"'),
+               f"length={len(profile_page)}")
 
         copy_user = client.get("/panel/trans-user/new?copy_from=" + api_id).get_data(as_text=True)
         record("trans_user_copy_prefill", "window.USER_ID = null" in copy_user

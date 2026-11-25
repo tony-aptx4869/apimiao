@@ -6,7 +6,7 @@ from flask import render_template, request, session
 from ..db import all_rows, one, execute, utcnow
 from ..i18n import t
 from ..utils import cutoff_iso, error, ok, require_login, require_admin, gen_api_key, hash_api_key, local_day
-from config import endpoint_prefix
+from config import PASSKEY_MAX, endpoint_prefix
 from . import bp
 
 @bp.route("/panel")
@@ -260,4 +260,4 @@ def profile():
     user = one("SELECT * FROM users WHERE id = ?", (session["uid"],))
     passkeys = all_rows("SELECT id, name, platform, created_at FROM passkeys WHERE user_id = ? ORDER BY created_at DESC", (session["uid"],))
     return render_template("profile.html", user=user, passkeys=[dict(r) for r in passkeys],
-                           force=request.args.get("force") == "1")
+                           passkey_max=PASSKEY_MAX, force=request.args.get("force") == "1")
