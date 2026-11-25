@@ -64,15 +64,10 @@ systemctl restart apimiao apimiao-scheduler
 
 echo "[APIMiao] Health check"
 systemctl is-active apimiao apimiao-scheduler caddy
-HEALTH_OK=0
-for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null http://127.0.0.1:8080/; then
-    HEALTH_OK=1
-    break
-  fi
-  sleep 1
-done
-if [ "$HEALTH_OK" -ne 1 ]; then
+# Type=simple 下 systemctl restart 在进程 fork 后即返回，gunicorn bind 8080 需短暂时间。
+# 用 curl 内建重试等待就绪；stderr 重定向屏蔽等待期 connection refused 的瞬时噪音。
+if ! curl -fsS --retry 30 --retry-connrefused --retry-all-errors --retry-delay 1 \
+     -o /dev/null http://127.0.0.1:8080/ 2>/dev/null; then
   echo "[APIMiao] Health check failed" >&2
   exit 1
 fi
