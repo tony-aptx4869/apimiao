@@ -175,19 +175,22 @@ def logout():
 @bp.route("/api/passkey/auth/options", methods=["POST"])
 def passkey_auth_options():
     email = str((request.get_json(silent=True) or {}).get("email") or "").strip()
-    if not email:
-        return error("Email required", 400)
-    user = one("SELECT id FROM users WHERE email = ?", (email,))
-    if not user:
-        return error("No passkeys registered", 400)
-    # §5.5：allowCredentials 限定认证器只能返回该用户已注册的凭证
-    allow = [
-        PublicKeyCredentialDescriptor(id=bytes(row["credential_id"]))
-        for row in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ? ORDER BY id", (user["id"],))
-    ]
-    if not allow:
-        return error("No passkeys registered", 400)
     rp_id, _ = _rp_origin()
+    if email:
+        # §5.5：提供了邮箱时用 allowCredentials 限定认证器只能返回该用户已注册的凭证
+        user = one("SELECT id FROM users WHERE email = ?", (email,))
+        if not user:
+            return error("No passkeys registered", 400)
+        allow = [
+            PublicKeyCredentialDescriptor(id=bytes(row["credential_id"]))
+            for row in all_rows("SELECT credential_id FROM passkeys WHERE user_id = ? ORDER BY id", (user["id"],))
+        ]
+        if not allow:
+            return error("No passkeys registered", 400)
+    else:
+        # 未提供邮箱：可发现凭证模式，不传 allowCredentials。
+        # 认证器返回该 RP 下已存储的通行密钥，verify 端点按 credential_id 定位账户。
+        allow = None
     options = generate_authentication_options(
         rp_id=rp_id,
         allow_credentials=allow,

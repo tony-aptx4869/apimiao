@@ -247,6 +247,23 @@ def run():
         record("auth_updates_sign_count", row2["sign_count"] == auth.sign_count + 1,
                f"sign_count={row2['sign_count']}")
 
+        # ---- Discoverable login without email (§5.5) ----
+        # 无邮箱时走可发现凭证模式：不传 allowCredentials，认证器返回该 RP 下已存储的凭证，
+        # verify 端点按 credential_id 定位账户，无需用户先输入邮箱。
+        dopts_auth = client.post("/api/passkey/auth/options", json={})
+        dbody = dopts_auth.get_json()
+        record("auth_options_no_email_discoverable",
+               dopts_auth.status_code == 200 and dbody.get("challenge")
+               and dbody.get("allowCredentials") == [],
+               f"status={dopts_auth.status_code} body={dbody}")
+        disc = auth.authenticate(dbody["challenge"], sign_count=auth.sign_count + 10)
+        dv = client.post("/api/passkey/auth/verify", json=disc)
+        dv_body = dv.get_json()
+        record("auth_verify_discoverable_login",
+               dv.status_code == 200 and dv_body.get("ok")
+               and dv_body.get("redirect") == "/panel/overview",
+               f"status={dv.status_code} body={dv_body}")
+
         # ---- Replay: signCount not greater than stored → rejected (§7.2) ----
         aopts2 = client.post("/api/passkey/auth/options", json={"email": "passkey@test.local"}).get_json()
         replay = auth.authenticate(aopts2["challenge"], sign_count=auth.sign_count + 1)
