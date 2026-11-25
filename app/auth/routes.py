@@ -237,29 +237,37 @@ def passkey_auth_verify():
 
 # ---------------- WebAuthn：注册通行密钥（§5.4 CreationOptions / §7.1 注册验证） ----------------
 
-# AAGUID（§6.5.1 attestedCredentialData）→ 平台名。依据 FIDO MDS / 社区通行密钥
-# AAGUID 注册表核实，仅覆盖常见认证器；未命中（含全零隐私值）归为 Other。
+# AAGUID（§6.5.1 attestedCredentialData）→ 平台名。映射表严格依据用户提供的
+# AAGUID 注册表（AAGUIDs.csv）制作，表中 AAGUID 才识别为对应平台；不在此表上
+# 的（含全零隐私值 00000000-0000-0000-0000-000000000000，即认证器刻意不暴露
+# 型号的隐私保护值）一律识别为 Other。
 _AAGUID_PLATFORMS = {
-    # Apple iCloud Keychain
-    "fbfc3007-154e-4ecc-8c0b-6e020557d7bd": "Apple",
-    "dd4ec289-e01d-41c9-bb89-70fa845d4bf2": "Apple",
-    # Microsoft Windows Hello
-    "08987058-cadc-4b81-b6e1-30de50dcbe96": "Microsoft",
-    "9ddd1817-af5a-4672-a2b9-3e3dd95000a9": "Microsoft",
-    "6028b017-b1d4-4c02-b4b3-afcdafc96bb2": "Microsoft",
-    # Google Password Manager
-    "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4": "Google",
-    # Yubico
-    "2fc0579f-8113-47ea-b116-bb5a8db9202a": "YubiKey",
-    "fa2b99dc-9e39-4257-8f92-4a30d23c4118": "YubiKey",
-    "6d44ba9b-f6ec-2e49-b930-0c8fe920cb73": "YubiKey",
-    "149a2021-8ef6-4133-96b8-81f8d5b7f1f5": "YubiKey",
-    "b92c3f9a-c014-4056-887f-140a2501163b": "YubiKey",
+    "bada5566-a7aa-401f-bd96-45619a55120d": "1Password",
+    "b93fd961-f2e6-462f-b122-82002247de78": "Android Authenticator",
+    "fbfc3007-154e-4ecc-8c0b-6e020557d7bd": "Apple Passwords",
+    "d548826e-79b4-db40-a3d8-11116f7e8349": "Bitwarden",
+    "adce0002-35bc-c60a-648b-0b25f1f05503": "Chrome on Mac",
+    "b5397666-4885-aa6b-cebf-e52262a439a2": "Chromium Browser",
+    "771b48fd-d3d4-4f74-9232-fc157ab0507a": "Edge on Mac",
+    "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4": "Google Password Manager",
+    "42b4fb4a-2866-43b2-9bf7-6c6669c2e5d3": "Google Titan Security Key",
+    "dd4ec289-e01d-41c9-bb89-70fa845d4bf2": "Apple iCloud Keychain",
+    "eaecdef2-1c31-5634-8639-f1cbd9c00a08": "KeePassDX",
+    "9addb28c-b46f-4402-808f-019651441ff3": "KeePassPasskey",
+    "fdb141b2-5d84-443e-8a35-4698c205a502": "KeePassXC",
+    "de1e552d-db1d-4423-a619-566b625cdc84": "Microsoft Authenticator Android",
+    "90a3ccdf-635c-4729-a248-9b709135078f": "Microsoft Authenticator iOS",
+    "d3452668-01fd-4c12-926c-83a4204853aa": "Microsoft Password Manager",
+    "6f706c75-7366-6964-6f2d-70732d303031": "OPPO FIDO2 Authenticator",
+    "53414d53-554e-4700-0000-000000000000": "Samsung Pass",
+    "08987058-cadc-4b81-b6e1-30de50dcbe96": "Windows Hello",
+    "6028b017-b1d4-4c02-b4b3-afcdafc96bb2": "Windows Hello",
+    "9ddd1817-af5a-4672-a2b9-3e3dd95000a9": "Windows Hello",
 }
 
 
 def _platform_from_aaguid(aaguid):
-    """由注册返回的 AAGUID 推导平台，未命中返回 Other。"""
+    """由注册返回的 AAGUID 推导平台，未命中（含全零隐私值）返回 Other。"""
     return _AAGUID_PLATFORMS.get(str(aaguid or "").strip().lower(), "Other")
 
 

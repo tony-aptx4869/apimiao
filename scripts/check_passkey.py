@@ -293,6 +293,22 @@ def run():
         record("auth_options_unknown_email", unk.status_code == 400,
                f"status={unk.status_code}")
 
+        # ---- AAGUID → platform from registry (AAGUIDs.csv) ----
+        # 表内 AAGUID 识别为对应平台；表外（全零隐私值）落 Other 已由上方注册用例覆盖。
+        # 用 Microsoft Password Manager 的真实 AAGUID 复现用户报告场景。
+        ms_auth = SoftwareAuthenticator(
+            credential_id=b"\x22" * 32,
+            aaguid=bytes.fromhex("d345266801fd4c12926c83a4204853aa"),
+        )
+        mopts = client.post("/api/passkey/register/options", json={}).get_json()
+        mreg = client.post("/api/passkey/register/verify", json=ms_auth.register(mopts["challenge"]))
+        mbody = mreg.get_json()
+        record("platform_mapped_from_aaguid",
+               mreg.status_code == 200
+               and mbody.get("platform") == "Microsoft Password Manager"
+               and mbody.get("suggested_name") == "Microsoft Password Manager-1",
+               f"status={mreg.status_code} body={mbody}")
+
     # ---- Unauthenticated registration blocked ----
     with app.test_client() as anon:
         r = anon.post("/api/passkey/register/options", json={})

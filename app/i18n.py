@@ -265,6 +265,7 @@ T = {
         "profile.recovery_remaining": "{remaining} / {total} recovery codes remaining",
         "profile.copy_failed": "Copy failed",
         "profile.regen_prompt": "Enter your current 2FA code to regenerate:",
+        "profile.platform_unknown": "Due to security and privacy restrictions, we cannot determine the provider of your passkey.",
     },
     "zh": {
         "site.name": "API转转喵",
@@ -526,6 +527,7 @@ T = {
         "profile.recovery_remaining": "剩余 {remaining} / {total} 个恢复码可用",
         "profile.copy_failed": "复制失败",
         "profile.regen_prompt": "请输入当前 2FA 动态验证码以重新生成：",
+        "profile.platform_unknown": "由于安全隐私相关限制，我们无法确定您通行密钥的提供方。",
     },
 }
 
