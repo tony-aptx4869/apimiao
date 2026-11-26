@@ -255,6 +255,7 @@ _AAGUID_PLATFORMS = {
     "eaecdef2-1c31-5634-8639-f1cbd9c00a08": "KeePassDX",
     "9addb28c-b46f-4402-808f-019651441ff3": "KeePassPasskey",
     "fdb141b2-5d84-443e-8a35-4698c205a502": "KeePassXC",
+    "584d4354-4150-2d30-3030-303030303032": "Mi FIDO",
     "de1e552d-db1d-4423-a619-566b625cdc84": "Microsoft Authenticator Android",
     "90a3ccdf-635c-4729-a248-9b709135078f": "Microsoft Authenticator iOS",
     "d3452668-01fd-4c12-926c-83a4204853aa": "Microsoft Password Manager",
